@@ -1,0 +1,7 @@
+utils/telegram_config.py
+detailed_logs
+__pycache__
+output
+data
+libs
+*.pyc
