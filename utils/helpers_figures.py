@@ -1,13 +1,17 @@
 """
 Helpers for plotting figures
 """
+import matplotlib.ticker as mticker
 import matplotlib.pyplot as plt
 import matplotlib.text as mtext
 from matplotlib import cm
 from pathlib import Path
 from typing import Union
+import librosa
 import numpy as np
 import mne
+
+from utils.helpers_processing import get_gfp_peaks
 
 import config
 
@@ -15,6 +19,37 @@ if config.USE_SCIENCE_PLOTS:
     import scienceplots
     plt.style.use("science")
 
+ALLOWED_CLUSTERING_CORRELATION = ['Phonemes']
+
+def feature_names_mapping(
+    attribute: str,
+    number_of_features: int
+) -> dict:
+    """
+    Returns a mapping of feature indices to human-readable names for a given attribute.
+    
+    Parameters
+    ----------
+    attribute : str
+        The attribute name for which to get feature names.
+    
+    Returns
+    -------
+    dict
+        A dictionary mapping feature indices to names.
+    """
+    axis_mapping = {
+        'ylabel': None,
+        'yticks': None,
+        'yticklabels': None
+    }
+    if attribute == 'Spectrogram':
+        bands_center = librosa.mel_frequencies(n_mels=number_of_features+2, fmin=0, fmax=16000/2)[1:-1]
+        axis_mapping['full_labels'] = [int(bands_center[i]) for i in range(number_of_features)]
+        axis_mapping['ylabel'] = 'Frecuency (Hz)'
+        axis_mapping['yticklabels'] = [int(bands_center[i]) for i in np.arange(0, len(bands_center), 2)]
+        axis_mapping['yticks'] = np.arange(0, number_of_features, 2)
+    return axis_mapping
 
 def onsets_plot(
     events_times: list[np.ndarray],
@@ -81,7 +116,7 @@ def onsets_plot(
     if show:
         plt.show(block=True)
     elif output_filepath is not None:
-        fig.savefig(
+        _ = fig.savefig(
             output_filepath, dpi=dpi
         )
     plt.close(fig)
@@ -92,13 +127,12 @@ def onsets_plot(
 def evoked_potential_plot(
     evoked: mne.Evoked,
     output_filepath: Union[Path, str, None]=None,
-    time_window: Union[tuple, list, None]=None,
+    time_window: np.ndarray = None,
     figsize: tuple = (10, 6),
     dpi: int = 300,
     show: bool = False,
-    figkwargs: dict = {},
-    verbose: bool = True
-)-> None:
+    figkwargs: dict = {}
+)-> bool:
     """
     Plot evoked potential with mean ERP.
     
@@ -108,8 +142,8 @@ def evoked_potential_plot(
         The evoked data to plot.
     output_filepath : Union[Path, str, None]
         Filepath to save the output figure. If None, the figure is not saved.
-    time_window : Union[tuple, list, None]
-        Time window (start, end) in seconds for x-axis ticks. If None, uses full range of evoked.times
+    time_window : np.ndarray
+        Time window in seconds for x-axis ticks. If None, uses full range of evoked.times
     figsize : tuple
         Size of the figure.
     dpi : int
@@ -118,70 +152,326 @@ def evoked_potential_plot(
         Whether to display the figure. This overrides saving if True.
     figkwargs : dict
         Additional keyword arguments for the figure.
+
+    Returns
+    -------
+    bool
+        True if the figure was created successfully.
     """
     
-    fig, ax = plt.subplots(
+    fig, [ax_topomaps, ax_timeseries] = plt.subplots(
+        nrows=2,
+        ncols=1,
         figsize=figsize,
         constrained_layout=True,
         **figkwargs
     )
+    # Shift time to start at time_window[0] if provided
+    _ = evoked.shift_time(
+        tshift=time_window[0] if time_window is not None else evoked.times[0],
+        relative=True
+    )
+    # Peak detection
+    peak_times, peak_amplitudes = get_gfp_peaks(evoked, min_dist_ms=25, rel_height=0.1)
     
+    # Evoked potential time series
     evoked_plot = evoked.plot(
         scalings={'eeg':1},
         zorder='std',
         time_unit='ms',
         show=False,
         spatial_colors=True,
-        axes=ax,
+        axes=ax_timeseries,
+        # units='uV',
         gfp=True
-    )
-    mean_plot = ax.plot(
+    )    
+    
+    # Mean
+    mean_plot = ax_timeseries.plot(
         evoked.times*1e3, #ms
         evoked._data.mean(axis=0),
         color='black',
-        label='Mean ERP',
+        label='Mean',
         zorder=130,
         linewidth=1.2
     )
-    # evoked_plot = evoked.plot_joint( # same plot but with topomap at specific times
-    #     times='peaks',
-    #     show=True,
-    #     title='Evoked Potential - Bips',
-    #     ts_args=dict(time_unit='ms')
-    # )
-
-    # Eliminar la etiqueta "Nave"
+    # Standard Error of the Mean (SEM)
+    error_line = evoked._data.std(axis=0, ddof=1)/np.sqrt(evoked._data.shape[0])
+    stdofmean_plot = ax_timeseries.fill_between(
+        evoked.times*1e3, #ms
+        evoked._data.mean(axis=0) - error_line,
+        evoked._data.mean(axis=0) + error_line,
+        color='black',
+        label='S.E.M',
+        alpha=0.3,
+        zorder=120,
+        linewidth=1.2
+    )
+    # Add vertical lines at peak times
+    for peak_time in peak_times:
+        _ = ax_timeseries.axvline(
+            x=peak_time*1e3,  # ms
+            color='Black',
+            linestyle='--',
+            linewidth=1.0,
+            alpha=0.7,
+            label='GFP peaks' if peak_time == peak_times[0] else ""
+        )
+    # Remove "Nave" tag
     for txt in fig.findobj(mtext.Text):
         if "ave" in txt.get_text():
                 txt.remove()
     
+    # Axes labels and limits
     maximum = np.max(np.abs(evoked._data)) 
-    _ = ax.set_ylim(-maximum, maximum)
-    _ = ax.set_xlabel('Time (ms)')
+    _ = ax_timeseries.set_ylim(-maximum, maximum)
+    _ = ax_timeseries.set_ylabel('Amplitude (a.u.)')
+    _ = ax_timeseries.set_xlabel('Time (ms)')
 
-    time_window = time_window if time_window is not None else (evoked.times[0], evoked.times[-1])
-    _ = ax.set_xticks(
+    time_window = time_window if time_window is not None else evoked.times
+    start_ms = int(np.round(time_window[0] * 1e3 / 100) * 100)
+    end_ms = int(np.round(time_window[-1] * 1e3 / 100) * 100)
+    _ = ax_timeseries.set_xticks(
         np.arange(
-            time_window[0] * 1e3,
-            time_window[1] * 1e3 + 1,
+            start_ms,
+            end_ms + 100,
             100
         )
     )
-    _ = ax.legend(loc='upper right', fontsize=8)
-    _ = ax.grid(True)
+    _ = ax_timeseries.legend(loc='upper right', fontsize=12)
+    _ = ax_timeseries.grid(True)
 
+    # Clear the top axis (we will use insets aligned to time)
+    ax_topomaps.set_axis_off()
+
+    # Normalize time to the range of the bottom axis
+    tmin, tmax = time_window[0], time_window[-1]
+
+    # Global vlim so all use the same color scale
+    all_topo = evoked.copy().get_data()
+    vmax = np.nanmax(np.abs(all_topo))
+    vlim = (-vmax, vmax)
+    
+    first_im = None
+    for peak_time, peak_amplitude in zip(peak_times, peak_amplitudes):
+        # Normalized x position for inset
+        x_norm = (peak_time - tmin) / (tmax - tmin)
+        x_norm = np.clip(x_norm, 0.0, 1.0)
+
+        # Create inset topomap
+        inset = ax_topomaps.inset_axes(
+            [x_norm - 0.08, 0.05, 0.16, 0.9] # [x0, y0, w, h] in fraction of parent axes
+        )  
+        im, _ = mne.viz.plot_topomap(
+            data=evoked.copy().get_data()[:, evoked.time_as_index(peak_time)].reshape(-1),
+            pos=evoked.info,
+            axes=inset,
+            show=False,
+            sphere=0.07,
+            cmap='RdBu_r',
+            extrapolate='local',
+            border=0,
+            vlim=vlim
+        )
+        _ = inset.set_title(f'{peak_time*1e3:.0f} ms', fontsize=8)
+        if first_im is None: first_im = im
+
+    # first_im contains the first topomap image for colorbar
+    if first_im is not None: 
+        cax = fig.add_axes([0.1, 0.60, 0.3, 0.015]) # left, bottom, width, height
+        cbar = fig.colorbar(first_im, cax=cax, orientation='horizontal')
+        _ = cbar.set_label('Amplitude (a.u.)')
     if show:
         plt.show(block=True)
     elif output_filepath is not None:
-        fig.savefig(
+        _ = fig.savefig(
             output_filepath,
             dpi=dpi
         )
     plt.close(fig)
     
-    if verbose:
-        print('\n\t Figure saved to: ', output_filepath)
+    return True
 
+def trf_heatmap_plot(
+    data: np.ndarray,
+    attribute: str,
+    time_window: np.ndarray,
+    order: Union[np.ndarray, None] = None,
+    output_filepath: Union[Path, str, None]=None,
+    figsize: tuple = (10, 6),
+    dpi: int = 300,
+    show: bool = False,
+    figkwargs: dict = {}
+) -> bool:
+    
+    number_of_features = data.shape[0]
+    c = feature_names_mapping(
+        attribute=attribute, number_of_features=number_of_features
+    )
+    if attribute in ALLOWED_CLUSTERING_CORRELATION and order is not None:
+        # Reorder data based on clustering
+        data_ordered = data[order, :]
+        c['yticks'] = c['yticks'][order]
+        c['yticklabels'] = [c['yticklabels'][i] for i in order]
+    else:
+        data_ordered = data
+        order = np.arange(number_of_features)
+
+    # Create figure and title
+    fig, [ax_timeseries, ax_heatmap] = plt.subplots(
+        ncols=1,
+        nrows=2,
+        figsize=figsize,
+        constrained_layout=True,
+        sharex=True,
+        **figkwargs
+    )
+    # Time series plot
+    colors = cm.get_cmap('inferno', number_of_features)
+    for i in order:
+        ax_timeseries.plot(
+            time_window*1e3,
+            data_ordered[i, :],
+            label=f'{c["full_labels"][i]}' if c['full_labels'] is not None else f'Feature {i+1}',
+            color=colors(i),
+            alpha=1,
+            zorder=100
+        )
+    mean_timeseries = data_ordered.mean(axis=0)
+    std_timeseries = data_ordered.std(axis=0, ddof=1)/np.sqrt(number_of_features)
+    _ = ax_timeseries.plot(
+        time_window*1e3,
+        mean_timeseries,
+        color='green',
+        label='Mean',
+        zorder=130,
+        linewidth=1.2
+    )
+    _ = ax_timeseries.fill_between(
+        time_window*1e3,
+        mean_timeseries - std_timeseries,
+        mean_timeseries + std_timeseries,
+        color='green',
+        label='S.E.M',
+        alpha=0.3,
+        zorder=130,
+        linewidth=1.2
+    )
+    # Legend into multiple columns if needed
+    handles, labels = ax_timeseries.get_legend_handles_labels()
+    ncol = int(np.ceil(len(labels) / 4))
+    _ = ax_timeseries.legend(handles, labels, ncol=ncol, fontsize=7)
+    ax_timeseries.grid(visible=True)
+
+    # Avoid identical vmax or NaN
+    vmax = np.abs(data_ordered).max()
+    if not np.isfinite(vmax) or vmax == 0:
+        raise ValueError("" \
+        "Data contain non-finite values or identical min/max, cannot plot heatmap." \
+        "trf_heatmap_plot aborted."
+        )
+    # Heatmap plot
+    im = ax_heatmap.pcolormesh(
+        time_window * 1e3, 
+        np.arange(number_of_features), 
+        data_ordered, 
+        cmap='RdBu_r', 
+        shading='auto',
+        vmin=-vmax,
+        vmax=vmax
+    )
+    # Axes labels and limits
+    _ = ax_heatmap.set(
+        xlabel='Time (ms)',
+        ylabel=c['ylabel'] if c['ylabel'] is not None else 'Features',
+        yticks=c['yticks'] if c['yticks'] is not None else np.arange(0, number_of_features, 1),
+        yticklabels=c['yticklabels'] if c['yticklabels'] is not None else [str(i+1) for i in range(number_of_features)] 
+    )
+    # Create colorbar
+    _ = fig.colorbar(
+        im, 
+        ax=ax_heatmap, 
+        orientation='horizontal', 
+        shrink=1, 
+        label='Amplitude (a.u.)', 
+        aspect=15
+    )
+    if show:
+        plt.show(block=True)
+    elif output_filepath is not None:
+        _ = fig.savefig(
+            output_filepath,
+            dpi=dpi
+        )
+    plt.close(fig)    
+
+def heatmap_topoplot(
+    coefficient_values: np.ndarray,
+    coefficient_name: str,
+    info: mne.Info,
+    figsize: tuple = (6, 5),
+    figkwargs: dict = {},
+    show: bool = False,
+    colors:str = 'OrRd',
+    output_filepath: Union[Path, str, None]=None,
+    dpi: int = 300
+)-> bool:
+    # Create figure and title
+    fig, ax = plt.subplots(
+        figsize=figsize,
+        constrained_layout=True,
+        **figkwargs
+    )
+    
+    # Make topomap
+    im = mne.viz.plot_topomap(
+        data=coefficient_values, 
+        pos=info, 
+        cmap=colors,
+        vlim=(coefficient_values.min(), coefficient_values.max()),
+        show=False, 
+        sphere=0.07, 
+        axes=ax,
+        extrapolate='local',  # Esto limita el dibujo al área donde hay sensores
+        border=0
+    )
+    
+    # Avoid identical vmin/vmax or NaN
+    vmin = coefficient_values.min()
+    vmax = coefficient_values.max()
+    if not np.isfinite(vmin) or not np.isfinite(vmax) or vmin == vmax:
+        return False
+        raise ValueError("" \
+        "Coefficient values contain non-finite values or identical min/max, cannot plot topomap." \
+        "heatmap_topoplot aborted."
+        )
+
+    cbar = plt.colorbar(
+        im[0],
+        ax=ax, 
+        shrink=0.85,
+        label=coefficient_name,
+        orientation='horizontal',
+        boundaries=np.linspace(vmin, vmax, 100) if vmin != vmax else None,
+        ticks=np.linspace(vmin, vmax, 9) if vmin != vmax else [vmin]
+    )
+    cbar.formatter = mticker.ScalarFormatter(useMathText=True)
+    cbar.formatter.set_scientific(True)
+    cbar.formatter.set_powerlimits((-2, 2))
+    cbar.update_ticks()
+    
+    if show:
+        plt.show(block=True)
+    elif output_filepath is not None:
+        _ = fig.savefig(
+            output_filepath,
+            dpi=dpi
+        )
+    plt.close(fig)
+    
+    return True
+
+        
 # ==================
 # Validation figures
 def hyperparameter_selection(

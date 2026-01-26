@@ -1,4 +1,7 @@
-from typing import List, Union, Sequence, Optional, Dict, Any, Iterable
+from typing import Union, Sequence, Optional, Dict, Any, Iterable
+from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.spatial.distance import squareform
+from scipy.signal import find_peaks
 from pathlib import Path
 import numpy as np
 import logging
@@ -105,11 +108,13 @@ def create_default_dict(
     return _build(0)
 
 def fill_missing_nested(
+    data_name: str,
     data: Dict,
     levels: Iterable[Iterable[Any]],
     default_value: Any,
     log_stage: callable = None,
     logger: logging.Logger = None,
+    log_level: str = "info",
     level_names: Iterable[str] = None
 ) -> Dict:
     """
@@ -130,13 +135,96 @@ def fill_missing_nested(
             if key not in d:
                 if log_stage and logger:
                     label = level_names[idx] if idx < len(level_names) else f"level_{idx}"
-                    log_stage(f"Missing {label} '{key}', adding default structure.", logger=logger)
+                    log_stage(f"{data_name} missing {label} '{key}', adding default structure value --> {default_value}.", logger=logger, level=log_level)
                 d[key] = {} if idx < len(levels) - 1 else default_value
             if idx < len(levels) - 1:
                 _fill(d[key], idx + 1, {**path, level_names[idx]: key})
 
     _fill(data, 0, {})
     return data
+
+def clustering_by_correlation(
+    data:np.ndarray, 
+    axis:int=0
+    )->np.ndarray:
+    """
+    Cluster by correlation the data
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Must be 2D (array-like) where rows are variables and columns are observations
+    axis : int, default 0
+        Axis to cluster
+
+    Returns
+    -------
+    np.ndarray
+        Ordered indices (missing indices are zero rows)    
+    """
+    if data.ndim != 2:
+        raise ValueError("Input data must be 2D array-like.")
+    data = data.T  if axis == 1 else data
+
+    # Identify zero rows
+    null_indexes = np.where(~data.any(axis=1))[0]
+    data = data[[i for i in np.arange(data.shape[0]) if i not in null_indexes]]
+
+    # Compute the correlation matrix 
+    correlation_matrix = np.corrcoef(data, rowvar=True)
+
+    # Convert the correlation matrix to a distance matrix
+    distance_matrix = 1 - correlation_matrix
+
+    # Ensure the diagonal of the distance matrix is zero and that the matrix is symmetric
+    np.fill_diagonal(distance_matrix, 0)
+    distance_matrix = (distance_matrix + distance_matrix.T) / 2
+
+    # Use squareform to convert the distance matrix to a condensed form
+    condensed_distance_matrix = squareform(distance_matrix)
+
+    # Perform hierarchical clustering
+    linkage_matrix = linkage(condensed_distance_matrix, method='single')
+
+    # Get the order of the variables
+    ordered_indices = leaves_list(linkage_matrix)
+    
+    return ordered_indices
+
+def get_gfp_peaks(evoked, min_dist_ms=25, rel_height=0.1):
+    """
+    Extracts peak latencies and GFP magnitudes from an MNE Evoked object.
+
+    Parameters
+    ----------
+    evoked : mne.Evoked
+        The evoked data container.
+    min_dist_ms : float
+        Minimum temporal distance between peaks in milliseconds to avoid duplicates.
+    rel_height : float
+        Relative threshold (0.0 to 1.0) to reject peaks lower than a percentage of the global maximum.
+
+    Returns
+    -------
+    tuple
+        (times, magnitudes) - A tuple containing two numpy arrays:
+        - times: Latencies of the peaks in seconds.
+        - magnitudes: GFP values at those latencies.
+    """
+    # Isolate channels and compute Global Field Power (GFP)
+    inst = evoked.copy().pick('eeg')
+    gfp = np.std(inst.data, axis=0)
+
+    # Convert ms constraint to samples and calculate height threshold
+    sfreq = inst.info['sfreq']
+    dist_samples = int((min_dist_ms / 1000) * sfreq)
+    height_thresh = np.max(gfp) * rel_height
+
+    # Find peaks
+    peaks_idx, _ = find_peaks(gfp, distance=dist_samples, height=height_thresh)
+
+    return inst.times[peaks_idx], gfp[peaks_idx]
+
 # ================================
 # FILTERING AND RESAMPLING SIGNALS
 def get_antialiasing_filter(
@@ -253,7 +341,7 @@ def fir_filter(
     min_transition_bandwidth: float = 0.5,
     use_fourier: bool = True,
     pass_zero: Union[bool, str] = "bandpass",
-    return_delay_cut: bool = True
+    return_delay: bool = True
 ) -> np.ndarray:
     """
     Apply a FIR filter using the "Two-Stage" (Cascade) logic, standard in EEGLAB.
@@ -278,7 +366,11 @@ def fir_filter(
     axis : int, optional
         Axis to filter.
     call_type : str, optional
-        Filtering method.
+        Filtering method to use. Options:
+        - "both": zero-phase filtering using filtfilt.
+        - "forward": forward filtering using lfilter (introduces phase delay).
+        - "forward_compensated_cut": forward filtering with delay compensation by cutting final samples.
+        - "forward_compensated_reflected": forward filtering with reflected padding to avoid edge artifacts.
     store_cache : Union[Path, str, None], optional
         Path to store filter taps.
     transition_ratio : float, optional
@@ -293,14 +385,14 @@ def fir_filter(
         Toggles the zero frequency bin (or DC gain) to be in the passband (True) or in the stopband (False).
         'bandstop', 'lowpass' are synonyms for True and 'bandpass', 'highpass' are synonyms for False.
         'lowpass', 'highpass' additionally require cutoff to be a scalar value or a length-one array.
-    return_delay_cut : bool, optional
-        Whether to return the number of samples cut due to delay compensation. Default is True.
+    return_delay : bool, optional
+        Whether to return the number of samples the signal is delayed due to phase shift. Default is True.
 
     Returns
     -------
-    if return_delay_cut:
+    if return_delay:
         tuple[int, np.ndarray]
-            Number of samples cut due to delay compensation and the filtered array.
+            Number of samples the signal is delayed due to phase shift and the filtered array (if forward_compensated_reflected, then number of samples cut is returned).
     else:
         np.ndarray
             The filtered array.
@@ -433,7 +525,7 @@ def fir_filter(
         
         # Compensate for delay by cutting initial samples
         if call_type == "forward_compensated_cut":
-            slices[axis] = slice(delay, None)
+            slices[axis] = slice(None,-delay)
             filtered =  filtered_raw[tuple(slices)]
         # No compensation --> additional phase delay 
         else:
@@ -475,7 +567,7 @@ def fir_filter(
     else:
         # The DC offset has been removed by the high-pass filter
         pass
-    if return_delay_cut:
+    if return_delay:
         return delay, filtered
     else:
         return filtered
@@ -1035,7 +1127,6 @@ def band_selection(
         'Theta': (4.0, 8.0),
         'Alpha': (8.0, 12.0),
         'Beta': (12.0, 30.0),
-        'Gamma': (30.0, 100.0),
         'Broad': (1.0, 15.0),
         'FullBand': (None, None)
     }
@@ -1043,6 +1134,41 @@ def band_selection(
         raise ValueError(f"Band '{band}' is not recognized. Available bands: {list(bands.keys())}")
     
     return bands[band]
+
+def get_info_mne(
+    montage_name: str = 'biosemi64',
+    ch_types: Union[str, list] = 'eeg',
+    channel_selection: Union[list, None] = None,
+    sample_frequency: int = 128,
+    return_channels_index: bool = False
+) -> mne.Info:
+    """
+    Extract basic information from an MNE Raw object.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        The raw EEG data.
+
+    Returns
+    -------
+    mne.Info
+        Information dictionary containing sampling frequency, number of channels, and channel names.
+    """
+    montage = mne.channels.make_standard_montage(montage_name)
+    if channel_selection is None:
+        channel_selection = montage.ch_names
+    info = mne.create_info(
+        ch_names=channel_selection,
+        sfreq=sample_frequency,
+        ch_types=ch_types
+    )
+    info.set_montage(montage)
+    if return_channels_index:
+        channels_index = [info.ch_names.index(ch) for ch in channel_selection]
+        return channels_index, info
+    else:
+        return info
 
 # =====================
 # ANNOTATION PROCESSING
@@ -1117,3 +1243,4 @@ def get_no_task_times(
     durations_not_annotated = offsets_not_annotated - onsets_not_annotated
 
     return onsets_not_annotated, durations_not_annotated
+

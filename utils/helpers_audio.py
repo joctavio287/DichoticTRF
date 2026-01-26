@@ -5,6 +5,7 @@ representations from audio data.
 """
 from typing import Dict, Union
 from pathlib import Path
+import pandas as pd
 import numpy as np
 
 from pydub import AudioSegment
@@ -123,6 +124,49 @@ def extract_spectrogram(
     ).T
     return S_DB
 
+def extract_bip_onsets(
+    audio_signal: np.ndarray,
+    sample_rate: int,
+    audio_filepath: Union[str, Path],
+    side: str = 'mono'
+) -> np.ndarray:
+    """
+    Extracts bip onset times from a CSV file and creates a binary mask indicating the onsets.
+    
+    Parameters
+    ----------
+    audio_signal : np.ndarray
+        The input audio signal.
+    sample_rate : int
+        The sample rate of the audio signal.
+    audio_filepath : Union[str, Path]
+        The file path of the original audio file.
+    side : str, optional
+        The side to extract onsets for ('left', 'right', 'mono'), by default 'mono'.
+    
+    Returns
+    -------
+    np.ndarray
+        A binary mask array indicating the onset times.
+    """
+    possible_sides = ['left', 'right', 'mono']
+    if side not in possible_sides:
+        raise ValueError(f"Side '{side}' not recognized. Must be one of {possible_sides}.")
+    mask = np.zeros_like(audio_signal)
+    audio_time = np.arange(audio_signal.shape[0]) / sample_rate
+    if side == 'mono':
+        onsets = pd.read_csv(
+            config.ONSETS_DIR / (Path(str(audio_filepath)).stem[:7] + "_onsets.csv")
+        ).to_numpy().flatten()
+
+    else:
+        onsets = pd.read_csv(
+            config.ONSETS_DIR / (Path(str(audio_filepath)).stem[:7] + "_onsets.csv")
+        )[side + "_s"].to_numpy()
+    onset_indices = (onsets * sample_rate).astype(int)
+    mask[onset_indices] = 1
+    return mask.reshape(-1, 1)
+
 def extract_phonemes(
     ):
     ...
@@ -134,6 +178,8 @@ def compute_single_stimulus(
     axis: int = 0, 
     target_sample_rate: Union[int, None] = None, 
     delay_to_compensate: Union[int, None] = None, 
+    audio_filepath: Union[str, Path] = None,
+    sidename: str = 'mono',
     params: Dict = {}
 ) -> np.ndarray:
     """
@@ -157,13 +203,17 @@ def compute_single_stimulus(
         If None, no delay compensation is performed. Default is None.
     params : Dict, optional
         Additional parameters specific to the stimulus extraction method.
+    audio_filepath : Union[str, Path]
+        The file path of the original audio file.
+    sidename : str, optional
+        Side to process ('left', 'right', or 'mono'). Default is 'mono'.
     
     Returns
     -------
         np.ndarray
             The computed stimulus representation.
     """
-    POSSIBLE_STIMULI = ['Envelope', 'Spectrogram', 'Phonemes']
+    POSSIBLE_STIMULI = ['Envelope', 'Spectrogram', 'BipOnsets', 'Phonemes']
     
     if attribute not in POSSIBLE_STIMULI:
         raise ValueError(f"Attribute '{attribute}' not recognized. Must be one of {POSSIBLE_STIMULI}.")
@@ -186,6 +236,19 @@ def compute_single_stimulus(
             sample_rate=sample_rate,
             **params
         )
+    elif attribute == 'BipOnsets':
+        stimulus = extract_bip_onsets(
+            audio_signal=audio,
+            sample_rate=sample_rate,
+            audio_filepath=audio_filepath,
+            **params
+        )
+        stimulus_resampled = custom_resample(
+            array=stimulus,
+            original_sr=sample_rate,
+            target_sr=target_sample_rate,
+            axis=axis
+        )
     elif attribute == 'Phonemes':
         stimulus = extract_phonemes(
             audio_signal=audio,
@@ -195,7 +258,7 @@ def compute_single_stimulus(
 
     # Compensate for delay
     if delay_to_compensate is not None and delay_to_compensate > 0:
-        stimulus_resampled = stimulus_resampled[delay_to_compensate:]
+        stimulus_resampled = stimulus_resampled[:-delay_to_compensate]
     elif delay_to_compensate is not None and delay_to_compensate < 0:
         raise NotImplementedError("Negative delay doesn't make sense.")
     return stimulus_resampled

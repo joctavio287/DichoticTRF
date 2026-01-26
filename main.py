@@ -19,9 +19,10 @@ from utils.telegram_config import API_TOKEN, CHAT_ID
 
 # Command line and logging
 from utils.from_commands import create_dynamic_parser, apply_args_to_config
-from utils.logs import setup_logger
-from utils.logs import log_stage, log_progress, log_memory_usage
-from utils.logs import get_logger_file_paths
+from utils.logs import (
+    log_stage, log_progress, log_memory_usage,
+    get_logger_file_paths, setup_logger
+)
 
 # Initialize logger
 logger_main = setup_logger(
@@ -47,7 +48,6 @@ if __name__ == "__main__":
 def main(
     val_correlation_limit_percentage: float = config.VALIDATION_LIMIT_PERCENTAGE,
     overwrite_attributes: bool = config.OVERWRITE_EXISTING_ATTRIBUTES,
-    target_sampling_rate: int = config.TARGET_SAMPLING_RATE,
     overwrite_results: bool = config.OVERWRITE_RESULTS,
     attribute_preprocess: str = config.ATTRIBUTE_PREPROCESS,
     number_of_channels: int = config.NUMBER_OF_CHANNELS,
@@ -64,9 +64,10 @@ def main(
     bands: List[str] = config.BAND_FREQ,
     delays: np.ndarray = config.DELAYS,
     logger_main: logging.Logger = logger_main,
-    sidename: str = config.SIDENAME,
+    sides: List[str] = config.SIDES,
     n_folds: int = config.N_FOLDS,
-    solver: str = config.SOLVER
+    solver: str = config.SOLVER,
+    load_results: bool = False
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, np.ndarray]]]]:
     """
     Main function to perform TRFs analysis over subjects, bands, attributes and sides.
@@ -105,8 +106,8 @@ def main(
         Whether to set all alphas to the default value.
     subjects : List[Path]
         The list of subject paths to process.
-    sidename : str
-        The side name to process ('left', 'right', 'both', 'mono').
+    sides : List[str]
+        The side names to process ('left', 'right', 'mono').
     trfs_dir : Path
         The directory where TRF results are stored.
     n_folds : int
@@ -124,12 +125,11 @@ def main(
         Nested results keyed by band -> attribute -> side, containing arrays for
         'correlations', 'correlations_std', 'trfs', and a 'metadata' dict.
     """
-    
     # Load existing validation results if available
     validation_path = validation_dir / f'X_{attribute_preprocess}_Y_{eeg_preprocess}' / f'correlation_limit_{val_correlation_limit_percentage}.json'
     if set_alpha:
         alphas = create_default_dict(
-            levels=(bands, attributes, [sidename] if sidename != 'both' else ['left', 'right'], subjects),
+            levels=(bands, attributes, sides, subjects),
             default_value=default_alpha
         )
         log_stage(f"Setting all alphas to default value: {default_alpha}", logger=logger_main)
@@ -137,23 +137,54 @@ def main(
         if validation_path.exists():
             alphas = load_json_to_dict(filepath=validation_path) 
             alphas = fill_missing_nested(
+                data_name="Validation results (alphas)",
                 data=alphas,
-                levels=(bands, attributes, [sidename] if sidename != 'both' else ['left', 'right'], subjects),
+                levels=(bands, attributes, sides, subjects),
                 level_names=('band','attribute','side','subject'),
                 default_value=default_alpha,
                 log_stage=log_stage,
-                logger=logger_main
+                logger=logger_main,
+                log_level="WARNING"
             )
         else:
-            log_stage(f"No validation file found at {validation_path}. Using default alpha ({default_alpha}) for all subjects, bands, attributes, and sides", logger=logger_main)
+            log_stage(f"No validation file found at {validation_path}. Using default alpha ({default_alpha}) for all subjects, bands, attributes, and sides.", logger=logger_main, level="WARNING")
             alphas = create_default_dict(
-                levels = (bands, attributes, [sidename] if sidename != 'both' else ['left', 'right'], subjects),
+                levels = (bands, attributes, sides, subjects),
                 default_value=default_alpha
             )
     total_results = create_default_dict(
-        levels = (bands, attributes, [sidename] if sidename != 'both' else ['left', 'right']),
+        levels = (bands, attributes, sides),
         default_value=None
     )
+    if load_results:
+        log_stage("Loading existing results from disk...", logger=logger_main)
+        for band in bands:
+            for attribute in attributes:
+                for side in sides:
+                    correlations_path = correlations_dir / f'X_{attribute_preprocess}_Y_{eeg_preprocess}' / f'correlations_{band.lower()}_{attribute.lower()}_{side}.npz'
+                    trfs_path = trfs_dir / f'X_{attribute_preprocess}_Y_{eeg_preprocess}' / f'trfs_{band.lower()}_{attribute.lower()}_{side}.npz'
+                    if correlations_path.exists() and trfs_path.exists():
+                        corr_data = np.load(correlations_path, allow_pickle=True)
+                        trf_data =  np.load(trfs_path, allow_pickle=True)
+                        total_results[band][attribute][side] = {
+                            'correlations': corr_data['correlations'],
+                            'correlations_std': corr_data['correlations_std'],
+                            'trfs': trf_data['trfs'],
+                            'metadata': {
+                                **corr_data['metadata'].item(),**trf_data['metadata'].item()
+                            }
+                        }
+                        log_stage(f"Loaded results for {band}-{attribute}-{side} from disk.", logger=logger_main)
+                    else:
+                        # Fill missing entries with None
+                        log_stage(f"Results for {band}-{attribute}-{side} not found on disk. They will be filled with Nones.", logger=logger_main, level="WARNING")
+                        total_results[band][attribute][side] = {
+                            'correlations_std': None,
+                            'correlations': None,
+                            'metadata': None,
+                            'trfs': None
+                        }
+        return total_results
 
     # Store runtimes
     stimulus_runtimes = {}
@@ -161,11 +192,7 @@ def main(
 
     for band in bands:
         log_memory_usage(logger=logger_main)
-        if sidename == 'both':
-            iterable_stimuli = zip(('left', 'right'), (0, 1))
-        else:
-            iterable_stimuli = [(sidename, None)]
-        for side, side_index in iterable_stimuli:
+        for side in sides:
             for attribute in attributes:
                 log_stage(
                     f"Current model: {band}-{attribute}-{side.capitalize()}", logger=logger_main
@@ -180,16 +207,14 @@ def main(
                     alpha = alphas[band][attribute][side][subject_id]
 
                     # Load subject's data
-                    eeg, stimuli = listening_data(                        
+                    eeg, stimulus = listening_data(                        
                         participant_id=subject_id,
                         band_freq=band,
-                        target_sample_rate=target_sampling_rate,
                         attributes=attributes,
                         attribute_params=attributes_params,
                         overwrite=overwrite_attributes,
-                        side=sidename
+                        side=side
                     )
-                    stimulus = stimuli[side_index] if sidename == 'both' else stimuli
                     number_of_features = stimulus[attribute].shape[1]
 
                     # Create placeholders for results
@@ -332,8 +357,6 @@ def main(
     # Print the completion message (single log)
     log_stage(text, logger=logger_main)
     return total_results
-
-
 
 if __name__=='__main__':
     results = main()

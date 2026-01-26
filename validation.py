@@ -1,13 +1,14 @@
 from sklearn.model_selection import KFold
 from typing import Dict, List, Optional
 from datetime import datetime
+from itertools import product
 from pathlib import Path
 import numpy as np
 import logging
 
 from utils.helpers_processing import (
     load_json_to_dict, dump_dict_to_json,
-    fill_missing_nested
+    fill_missing_nested, create_default_dict
 )
 from utils.helpers_figures import hyperparameter_selection
 from utils.helpers_load import listening_data
@@ -20,10 +21,10 @@ from utils.telegram_config import API_TOKEN, CHAT_ID
 
 # Command line and logging
 from utils.from_commands import create_dynamic_parser, apply_args_to_config
-from utils.logs import setup_logger
-from utils.logs import log_stage, log_progress, log_memory_usage
-from utils.logs import get_logger_file_paths
-
+from utils.logs import (
+    log_stage, log_progress, log_memory_usage,
+    get_logger_file_paths, setup_logger
+)
 # Initialize logger
 logger_val = setup_logger(
     name='validation',
@@ -49,7 +50,6 @@ def main(
     val_correlation_limit_percentage: float = config.VALIDATION_LIMIT_PERCENTAGE,
     overwrite_attributes: bool = config.OVERWRITE_EXISTING_ATTRIBUTES,
     attribute_preprocess: str = config.ATTRIBUTE_PREPROCESS,
-    target_sampling_rate: int = config.TARGET_SAMPLING_RATE,
     attributes_params: Dict = config.ATTRIBUTE_PARAMS,
     overwrite_results: bool = config.OVERWRITE_RESULTS,
     overwrite_figures: bool = config.OVERWRITE_FIGURES,
@@ -66,7 +66,8 @@ def main(
     solver: str = config.SOLVER,
     bands: List[str] = config.BAND_FREQ,
     logger_val: logging.Logger = logger_val,
-    sidename: str = config.SIDENAME
+    sides: List[str] = config.SIDES,
+    load_results: bool = False
 ) -> Dict[str, Dict[str, Dict[str, float]]]:
     """
     Main function to perform validation analysis over subjects, bands, attributes and sides.
@@ -113,27 +114,51 @@ def main(
         The frequency bands to consider.
     logger_val : logging.Logger
         The logger for validation process.
-    sidename : str
-        The side name to process ('left', 'right', 'both').
+    sides : List[str]
+        The side names to process ('left', 'right', 'mono').
 
     Returns
     -------
         Dict[str, Dict[str, Dict[str, float]]]
             A nested dictionary with subjects as keys, containing bands, sides, and attributes with their selected alpha values.
     """
-    
     # Load existing validation results if available
     validation_path = validation_dir / f'X_{attribute_preprocess}_Y_{eeg_preprocess}' / f'correlation_limit_{val_correlation_limit_percentage}.json'
     alphas = load_json_to_dict(filepath=validation_path) if validation_path.exists() else {}
+    if load_results:
+        log_stage(
+            f"Loading existing validation results from {validation_path}", 
+            logger=logger_val
+        )
+        # Fill missing entries with None
+        alphas_missing = fill_missing_nested(
+            data_name="Validation results (alphas)",
+            data=alphas,
+            levels=(bands, attributes, sides, subjects),
+            level_names=('band','attribute','side','subject'),
+            default_value=None,
+            log_stage=log_stage,
+            logger=logger_val,
+            log_level="WARNING"
+        )
+        return alphas_missing
+    
+    # Fill missing entries with None
     alphas = fill_missing_nested(
+        data_name="Validation results (alphas)",
         data=alphas,
-        levels=(bands, attributes, [sidename] if sidename != 'both' else ['left', 'right'], subjects),
+        levels=(bands, attributes, sides, subjects),
         level_names=('band','attribute','side','subject'),
         default_value=None,
         log_stage=log_stage,
-        logger=logger_val
+        logger=logger_val,
+        log_level="WARNING"
     )
     total_results = alphas.copy()
+    plot_data = create_default_dict(
+        levels=(bands, attributes, sides),
+        default_value=None
+    )
 
     # Store runtimes
     stimulus_runtimes = {}
@@ -141,11 +166,7 @@ def main(
 
     for band in bands:
         log_memory_usage(logger=logger_val)
-        if sidename == 'both':
-            iterable_stimuli = zip(('left', 'right'), (0, 1))
-        else:
-            iterable_stimuli = [(sidename, None)]
-        for side, side_index in iterable_stimuli:
+        for side in sides:
             for attribute in attributes:
                 log_stage(
                     f"Current model: {band}-{attribute}-{side.capitalize()}", logger=logger_val
@@ -158,16 +179,14 @@ def main(
                     alpha = alphas[band][attribute][side][subject_id]
    
                     # Load subject's data
-                    eeg, stimuli = listening_data(                        
+                    eeg, stimulus = listening_data(                        
                         participant_id=subject_id,
                         band_freq=band,
-                        target_sample_rate=target_sampling_rate,
                         attributes=attributes,
                         attribute_params=attributes_params,
                         overwrite=overwrite_attributes,
-                        side=sidename
+                        side=side
                     )
-                    stimulus = stimuli[side_index] if sidename == 'both' else stimuli
 
                     # Check if we need to skip because results exist
                     if alpha is not None and not overwrite_results:
@@ -197,23 +216,26 @@ def main(
                         relevant_eeg = eeg
                     
                     # Run folds 
-                    for fold, (train_indexes, test_indexes) in enumerate(kf_test.split(relevant_eeg)):
-                        logger_val.debug(f'\n\t······  [{fold+1}/{n_folds}]\t-->\t Validation fold')
-                        trfs_per_fold[fold], correlations_per_fold[fold], correlations_per_fold_train[fold]  = fold_model(
-                            fold=fold,
-                            alpha=alphas_grid,
-                            stims=stimulus[attribute],
-                            eeg=relevant_eeg,
-                            relevant_indexes=relevant_indexes,
-                            train_indexes=train_indexes,
-                            test_indexes=test_indexes,  
-                            logger=logger_val,
-                            solver=solver,
-                            validation=True,
-                            attribute_preprocess=attribute_preprocess,
-                            eeg_preprocess=eeg_preprocess,
-                            delays=delays
-                        )     
+                    try:
+                        for fold, (train_indexes, test_indexes) in enumerate(kf_test.split(relevant_eeg)):
+                            logger_val.debug(f'\n\t······  [{fold+1}/{n_folds}]\t-->\t Validation fold')
+                            trfs_per_fold[fold], correlations_per_fold[fold], correlations_per_fold_train[fold]  = fold_model(
+                                fold=fold,
+                                alpha=alphas_grid,
+                                stims=stimulus[attribute],
+                                eeg=relevant_eeg,
+                                relevant_indexes=relevant_indexes,
+                                train_indexes=train_indexes,
+                                test_indexes=test_indexes,  
+                                logger=logger_val,
+                                solver=solver,
+                                validation=True,
+                                attribute_preprocess=attribute_preprocess,
+                                eeg_preprocess=eeg_preprocess,
+                                delays=delays
+                            )     
+                    except Exception as e:
+                        from IPython import embed; embed()
                     # Aggregate results
                     correlations = np.nan_to_num(
                         np.nanmean(correlations_per_fold, axis=0)
@@ -227,7 +249,7 @@ def main(
                     trfs = np.nanmean(
                         trfs_per_fold, axis=0
                     )
-                    
+
                     # Find all indexes where the relative difference between the correlation and its maximum is within corr_limit_percent
                     relative_difference = abs(
                         (correlations.max() - correlations)/correlations.max()
@@ -258,7 +280,7 @@ def main(
                     # Make the alpha selection process plot
                     figures_path = figures_dir / 'validation' / f'subject_{subject_id}' / band.lower() / attribute.lower() / side.lower()
                     figures_path.mkdir(parents=True, exist_ok=True)
-                    hyperparameter_selection(
+                    plot_data[band][attribute][side] = dict(
                         alphas_grid=alphas_grid,
                         correlations=correlations, 
                         correlations_std=correlations_std,
@@ -273,6 +295,7 @@ def main(
                         save_path=figures_path/'validation_hyperparameter_selection.png',
                         overwrite=overwrite_figures,
                     )
+                    
                     # Update dictionaries
                     total_results[band][attribute][side][subject_id] = alpha_selected
                     alphas[band][attribute][side][subject_id] = alpha_selected
@@ -285,6 +308,22 @@ def main(
 
     # Get total run time            
     total_runtime = datetime.now().replace(microsecond=0) - start_time.replace(microsecond=0)
+
+    # Make plots
+    if overwrite_results:
+        for band, attribute, side in product(bands, attributes, sides):
+            hyperparameter_selection(**plot_data[band][attribute][side])
+        log_stage(
+            f"Figures saved in {figures_dir}/validation", 
+            logger=logger_val,
+            level="WARNING"
+        )
+    else:
+        log_stage(
+            "Overwrite_results is False.\n In this case, plots can't be generated because correlations and trfs are not saved.", 
+            logger=logger_val,
+            level="WARNING"
+        )
 
     # Build summary (includes left/right in keys)
     summary_lines = [f"Summarize of runtimes for {Path(__file__).stem}"]

@@ -1,6 +1,7 @@
 utils/telegram_config.py
 detailed_logs
 __pycache__
+figures
 output
 data
 libs

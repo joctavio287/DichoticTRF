@@ -128,7 +128,6 @@ def setup_logger(
     
     return logger
 
-
 def get_logger(
     name: str = None
 ) -> logging.Logger:
@@ -156,7 +155,6 @@ def get_logger(
     # Create new logger with default settings
     return setup_logger(name)
 
-
 def set_global_log_level(
     level: str
 )-> None:
@@ -181,7 +179,6 @@ def set_global_log_level(
         # Update handlers
         for handler in logger.handlers:
             handler.setLevel(numeric_level)
-
 
 def log_function_call(
     func: callable
@@ -227,7 +224,6 @@ def log_function_call(
             raise
     
     return wrapper
-
 
 def log_memory_usage(
     logger: logging.Logger = None
@@ -276,7 +272,6 @@ def log_progress(
     # Use different log levels based on progress
     log_stage(f"{message}: {current}/{total} ({percentage:.1f}%)", logger=logger)
 
-
 def log_stage(
     message: str,
     level: str = "INFO",
@@ -296,10 +291,9 @@ def log_stage(
     """
     if logger is None:
         logger = get_logger()
-    log_fn = getattr(logger, level.upper(), logger.info)
+    log_fn = getattr(logger, level.lower(), logger.info)
     cleaned = " ".join(str(message).strip().split())
     log_fn(f"⟫ {cleaned}")
-
 
 def get_logger_file_paths(
     logger: logging.Logger
@@ -312,7 +306,6 @@ def get_logger_file_paths(
         if isinstance(handler, logging.FileHandler) and hasattr(handler, "baseFilename"):
             paths.append(Path(handler.baseFilename))
     return paths
-
 
 # # Example usage and testing
 # if __name__ == "__main__":

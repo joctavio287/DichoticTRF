@@ -10,7 +10,7 @@ PREPROCESSED_LISTENING_DIR = BASE_DATA / "preprocessed_listening"
 ONSETS_DIR = STIMULI_DIR / "processed_audios/onsets"
 LOG_DIR = Path("detailed_logs")
 LOG_TO_FILE = True
-LOG_LEVEL ="INFO" # "INFO"
+LOG_LEVEL ="INFO" # "INFO" "DEBUG" "WARNING" "ERROR" "CRITICAL"
 
 ATTRIBUTE_PREPROCESS = 'Standarize'
 EEG_PREPROCESS = 'Standarize'
@@ -29,7 +29,6 @@ ALPHAS_GRID = np.logspace(
 )
 alpha_step = np.diff(np.log(ALPHAS_GRID))[0]
 
-SIDENAME = 'mono'  # 'left', 'right, 'both', 'mono'
 
 # Time lags and delays
 NUMBER_OF_CHANNELS = 64
@@ -46,7 +45,14 @@ OVERWRITE_RESULTS = True
 VALIDATION_DIR = OUTPUT_DIR / "validation" / f'tmin{TMIN}_tmax{TMAX}' 
 CORRELATIONS_DIR = OUTPUT_DIR / "correlations" / f'tmin{TMIN}_tmax{TMAX}'
 TRFS_DIR = OUTPUT_DIR / "trfs" / f'tmin{TMIN}_tmax{TMAX}'
+CHANNEL_SELECTION = None # to get all channels, else give explicit list (Fcz, C3, etc)
+OVERWRITE_EXISTING_ATTRIBUTES = False
 
+SIDES = [
+    'mono',
+    # 'left',
+    # 'right'
+    ]  
 
 BAND_FREQ = [
     'Broad',
@@ -54,13 +60,12 @@ BAND_FREQ = [
     'Theta',
     'Alpha',
     'Beta',
-    'Gamma',
     'FullBand'
     ]  
-OVERWRITE_EXISTING_ATTRIBUTES = False
 ATTRIBUTES = [
     'Envelope', 
     'Spectrogram', 
+    'BipOnsets'
     # 'Phonemes'
 ]
 ATTRIBUTE_PARAMS = {
