@@ -7,12 +7,14 @@ import matplotlib.text as mtext
 from matplotlib import cm
 from pathlib import Path
 from typing import Union
-import librosa
 import numpy as np
+import functools
+import logging
+import librosa
 import mne
 
 from utils.helpers_processing import get_gfp_peaks
-
+from utils.logs import log_stage
 import config
 
 if config.USE_SCIENCE_PLOTS:
@@ -20,6 +22,28 @@ if config.USE_SCIENCE_PLOTS:
     plt.style.use("science")
 
 ALLOWED_CLUSTERING_CORRELATION = ['Phonemes']
+
+def safe_plot(func):
+    """
+    Decorator to return False if the function raises any exception.
+    
+    Parameters
+    ----------
+    func : function
+        The plotting function to be decorated.
+    
+    Returns
+    -------
+    bool
+        True if the function executes successfully, False otherwise.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            return False
+    return wrapper
 
 def feature_names_mapping(
     attribute: str,
@@ -51,6 +75,7 @@ def feature_names_mapping(
         axis_mapping['yticks'] = np.arange(0, number_of_features, 2)
     return axis_mapping
 
+@safe_plot
 def onsets_plot(
     events_times: list[np.ndarray],
     events_labels: list[str],
@@ -89,7 +114,8 @@ def onsets_plot(
 
     Returns
     -------
-    None
+    bool
+        True if the figure was created successfully.
     """
     fig, ax = plt.subplots(
         constrained_layout=True,
@@ -123,7 +149,9 @@ def onsets_plot(
 
     if verbose:
         print('\n\t Figure saved to: ', output_filepath)
+    return True
 
+@safe_plot
 def evoked_potential_plot(
     evoked: mne.Evoked,
     output_filepath: Union[Path, str, None]=None,
@@ -289,9 +317,9 @@ def evoked_potential_plot(
             dpi=dpi
         )
     plt.close(fig)
-    
     return True
 
+@safe_plot
 def trf_heatmap_plot(
     data: np.ndarray,
     attribute: str,
@@ -303,6 +331,35 @@ def trf_heatmap_plot(
     show: bool = False,
     figkwargs: dict = {}
 ) -> bool:
+    """
+    Plot TRF heatmap with individual feature time series.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        2D array of shape (number_of_features, number_of_timepoints) containing TRF data.
+    attribute : str
+        The attribute name for feature labeling.
+    time_window : np.ndarray
+        1D array of time points corresponding to the TRF data.
+    order : Union[np.ndarray, None]
+        Optional array specifying the order of features for clustering. If None, no reordering is applied.
+    output_filepath : Union[Path, str, None]
+        Filepath to save the output figure. If None, the figure is not saved.
+    figsize : tuple
+        Size of the figure.
+    dpi : int
+        Dots per inch for the saved figure.
+    show : bool
+        Whether to display the figure. This overrides saving if True.
+    figkwargs : dict
+        Additional keyword arguments for the figure.
+
+    Returns
+    -------
+    bool
+        True if the figure was created successfully.
+    """
     
     number_of_features = data.shape[0]
     c = feature_names_mapping(
@@ -404,8 +461,10 @@ def trf_heatmap_plot(
             dpi=dpi
         )
     plt.close(fig)    
+    return True
 
-def heatmap_topoplot(
+@safe_plot
+def topoplot(
     coefficient_values: np.ndarray,
     coefficient_name: str,
     info: mne.Info,
@@ -414,8 +473,40 @@ def heatmap_topoplot(
     show: bool = False,
     colors:str = 'OrRd',
     output_filepath: Union[Path, str, None]=None,
-    dpi: int = 300
+    dpi: int = 300,
+    logger: logging.Logger = None
 )-> bool:
+    """
+    Plot topographic map of coefficient values.
+    
+    Parameters
+    ----------
+    coefficient_values : np.ndarray
+        1D array of coefficient values for each channel.
+    coefficient_name : str
+        Name of the coefficient to display on the colorbar.
+    info : mne.Info
+        MNE Info object containing channel locations.
+    figsize : tuple
+        Size of the figure.
+    figkwargs : dict
+        Additional keyword arguments for the figure.
+    show : bool
+        Whether to display the figure. This overrides saving if True.
+    colors : str
+        Colormap to use for the topomap.
+    output_filepath : Union[Path, str, None]
+        Filepath to save the output figure. If None, the figure is not saved.
+    dpi : int
+        Dots per inch for the saved figure.
+    logger : logging.Logger
+        Logger for logging warnings or errors.
+    
+    Returns
+    -------
+    bool
+        True if the figure was created successfully.
+    """
     # Create figure and title
     fig, ax = plt.subplots(
         figsize=figsize,
@@ -440,12 +531,21 @@ def heatmap_topoplot(
     vmin = coefficient_values.min()
     vmax = coefficient_values.max()
     if not np.isfinite(vmin) or not np.isfinite(vmax) or vmin == vmax:
+        if logger is not None:
+            log_stage(
+                f"Coefficient values contain non-finite values or identical min/max, topomap {coefficient_name} aborted.",
+                level="WARNING",logger=logger
+            )
         return False
-        raise ValueError("" \
-        "Coefficient values contain non-finite values or identical min/max, cannot plot topomap." \
-        "heatmap_topoplot aborted."
-        )
+    
+    elif np.mean(np.abs(coefficient_values) < 0.001):
+        if logger is not None:
+            log_stage(
+                f"Coefficient values are too close to zero (mean < 0.001), topomap {coefficient_name} aborted.",
+                level="WARNING",logger=logger
+            )
 
+        return False
     cbar = plt.colorbar(
         im[0],
         ax=ax, 
@@ -455,9 +555,9 @@ def heatmap_topoplot(
         boundaries=np.linspace(vmin, vmax, 100) if vmin != vmax else None,
         ticks=np.linspace(vmin, vmax, 9) if vmin != vmax else [vmin]
     )
-    cbar.formatter = mticker.ScalarFormatter(useMathText=True)
-    cbar.formatter.set_scientific(True)
-    cbar.formatter.set_powerlimits((-2, 2))
+
+    # Format colorbar to 3 decimals, not scientific
+    cbar.ax.xaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
     cbar.update_ticks()
     
     if show:
@@ -471,9 +571,9 @@ def heatmap_topoplot(
     
     return True
 
-        
 # ==================
 # Validation figures
+@safe_plot
 def hyperparameter_selection(
     alphas_grid: np.ndarray,
     correlations: np.ndarray,
@@ -521,7 +621,8 @@ def hyperparameter_selection(
     
     Returns
     -------
-    None
+    bool
+        True if the figure was created successfully.
     """
     
     # Create figure with custom layout: 2x2 grid at top, 1x1 at bottom spanning both columns
@@ -712,3 +813,4 @@ def hyperparameter_selection(
             save_path,
             dpi=300
         )
+    return True

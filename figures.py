@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from pathlib import Path
 import numpy as np
+import logging
 import mne
 
 from main import main as main_function
@@ -8,10 +9,11 @@ from main import main as main_function
 from utils.helpers_processing import (
     get_info_mne, clustering_by_correlation
 )
-from utils.logs import setup_logger, log_stage
+from utils.from_commands import create_dynamic_parser, apply_args_to_config
+from utils.logs import setup_logger, log_stage, log_if_false
 from utils.helpers_figures import (
-    evoked_potential_plot, heatmap_topoplot,
-    ALLOWED_CLUSTERING_CORRELATION, trf_heatmap_plot
+    ALLOWED_CLUSTERING_CORRELATION, trf_heatmap_plot,
+    evoked_potential_plot, topoplot,
 )
 import config
 
@@ -21,6 +23,16 @@ logger_figures = setup_logger(
     log_dir=config.LOG_DIR,
     level=config.LOG_LEVEL
 )
+if __name__ == "__main__":
+    parser = create_dynamic_parser()
+    args = parser.parse_args()
+    apply_args_to_config(args, logger=logger_figures)
+    
+    # Update logger to reflect overridden LOG_LEVEL
+    new_level = getattr(logging, config.LOG_LEVEL.upper(), logging.INFO)
+    logger_figures.setLevel(new_level)
+    for handler in logger_figures.handlers:
+        handler.setLevel(new_level)
 
 def main(
     bands: list = config.BAND_FREQ,
@@ -30,7 +42,7 @@ def main(
     fig_dir: str = config.FIGURES_DIR,
     channel_selection: str = config.CHANNEL_SELECTION,
     times: np.ndarray = config.TIMES,
-    logger_figures=logger_figures,
+    logger_figures: logging.Logger = logger_figures,
     extension: str = "png",
     dpi: int = 300
 ):
@@ -80,16 +92,16 @@ def main(
                     data=trfs.mean(axis=(0, 2)),
                     info=info_mne
                 )
-                if not evoked_potential_plot(
+                log_if_false(
+                    evoked_potential_plot(
                         output_filepath=fig_dir_subfolder / f"average_trf_across_features.{extension}",
                         evoked=averaged_evoked_trf,
                         time_window=times
-                    ):
-                    log_stage(
-                        f"Failed to create average TRF plot for {band}-{attribute}-{side}.",
-                        logger=logger_figures,
-                        level="ERROR"
-                    )
+                    ),
+                    f"{band}-{attribute}-{side}: TRF Failed",
+                    logger=logger_figures,
+                    level="ERROR"
+                )
                 # =============================================
                 # Average TRF plot across subjects and channels
                 if metadata['number_of_features'] > 1:
@@ -98,18 +110,24 @@ def main(
                         order = clustering_by_correlation(
                             data=trfs_mean_across_channels
                             )
-                    trf_heatmap_plot(
-                        output_filepath=fig_dir_subfolder / f"average_trf_across_channels.{extension}",
-                        data=trfs_mean_across_channels,
-                        time_window=times,
-                        attribute=attribute,
-                        order=order if attribute in ALLOWED_CLUSTERING_CORRELATION else None
+                    log_if_false(
+                        trf_heatmap_plot(
+                            output_filepath=fig_dir_subfolder / f"average_trf_across_channels.{extension}",
+                            data=trfs_mean_across_channels,
+                            time_window=times,
+                            attribute=attribute,
+                            order=order if attribute in ALLOWED_CLUSTERING_CORRELATION else None
+                        ),
+                        f"{band}-{attribute}-{side}: TRF Heatmap Failed",
+                        logger=logger_figures,
+                        level="ERROR"
                     )
 
                 # ============================================
                 # Average correlation topoplot across subjects
                 average_correlation = correlations.mean(axis=0)
-                if not heatmap_topoplot(
+                log_if_false(
+                    topoplot(
                         coefficient_values=average_correlation,
                         coefficient_name='Correlation',
                         info=info_mne,
@@ -118,13 +136,13 @@ def main(
                         colors='OrRd',
                         show=False,
                         output_filepath=fig_dir_subfolder / f"average_correlation_topomap.{extension}",
-                        dpi=dpi
-                    ):
-                    log_stage(
-                        f"Failed to create average correlation topoplot for {band}-{attribute}-{side}.",
-                        logger=logger_figures,
-                        level="ERROR"
-                    )
+                        dpi=dpi,
+                        logger=logger_figures
+                    ),
+                    f"{band}-{attribute}-{side}: Average Correlation Topoplot Failed",
+                    logger=logger_figures,
+                    level="ERROR"
+                )
                 # ===================================
                 # Similarity topoplot across subjects
                 average_trfs_across_features = trfs.mean(axis=2)
@@ -152,7 +170,8 @@ def main(
                     else:
                         similarity[channel] = np.nanmean(np.abs(channel_corr_values))
 
-                if not heatmap_topoplot(
+                log_if_false(
+                    topoplot(
                         coefficient_values=similarity,
                         coefficient_name='Similarity',
                         info=info_mne,
@@ -161,13 +180,13 @@ def main(
                         colors="Greens",
                         show=False,
                         output_filepath=fig_dir_subfolder / f"similarity_topomap.{extension}",
-                        dpi=dpi
-                    ):
-                    log_stage(
-                        f"Failed to create similarity topoplot for {band}-{attribute}-{side}.",
-                        logger=logger_figures,
-                        level="ERROR"
-                    )
+                        dpi=dpi,
+                        logger=logger_figures
+                    ),
+                    f"{band}-{attribute}-{side}: Similarity Topoplot Failed",
+                    logger=logger_figures,
+                    level="ERROR"
+                )
 
                 log_stage(
                     f"Figures saved in {fig_dir_subfolder}.", logger=logger_figures, level="INFO"

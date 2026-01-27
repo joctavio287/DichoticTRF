@@ -1,5 +1,6 @@
-from pathlib import Path
 from datetime import datetime
+import concurrent.futures
+from pathlib import Path
 import numpy as np
 import logging
 import mne
@@ -20,8 +21,8 @@ from utils.telegram_config import API_TOKEN, CHAT_ID
 # Command line and logging
 from utils.from_commands import create_dynamic_parser, apply_args_to_config
 from utils.logs import (
-    log_stage, log_progress, log_memory_usage,
-    get_logger_file_paths, setup_logger
+    log_stage, log_progress,
+    setup_logger
 )
 
 # Initialize logger
@@ -32,17 +33,58 @@ logger_load= setup_logger(
     level=config.LOG_LEVEL
 )
 
+# Use it
+if __name__ == "__main__":
+    parser = create_dynamic_parser()
+    args = parser.parse_args()
+    apply_args_to_config(args, logger=logger_load)
+    
+    # Update logger to reflect overridden LOG_LEVEL
+    new_level = getattr(logging, config.LOG_LEVEL.upper(), logging.INFO)
+    logger_load.setLevel(new_level)
+    for handler in logger_load.handlers:
+        handler.setLevel(new_level)
+
 def main(
     stimuli_dir: Path = config.STIMULI_DIR,
     attributes: list = config.ATTRIBUTES,
     attribute_params: dict = config.ATTRIBUTE_PARAMS,
     target_sample_rate: int = config.TARGET_SAMPLING_RATE,
     preprocessed_listening_dir: Path = config.PREPROCESSED_LISTENING_DIR,
-    preprocessed_eeg_dir: Path = config.PREPROCESSED_DIR,
+    preprocessed_eeg_dir: Path = config.PREPROCESSED_EEG_DIR,
     bands: list = config.BAND_FREQ,
     over_write: bool = config.OVERWRITE_EXISTING_ATTRIBUTES,
-    logger_load: logging.Logger = logger_load
+    logger_load: logging.Logger = logger_load,
+    parallel_workers: int = config.PARALLEL_WORKERS_LOADING
 ):
+    """
+    Load and preprocess data: compute attributes for audio files and preprocess EEG data.
+    Parameters
+    ----------
+        stimuli_dir: Path
+            Directory containing stimuli audio files.
+        attributes: list
+            List of attributes to compute for audio files.
+        attribute_params: dict
+            Dictionary of parameters for each attribute.
+        target_sample_rate: int
+            Target sampling rate for audio and EEG data.
+        preprocessed_listening_dir: Path
+            Directory to save preprocessed listening data.
+        preprocessed_eeg_dir: Path
+            Directory containing preprocessed EEG files.
+        bands: list
+            List of frequency bands for EEG preprocessing.
+        over_write: bool
+            If True, existing preprocessed files will be overwritten.
+        logger_load: logging.Logger
+            Logger instance for logging messages.
+        parallel_workers: int
+            Number of parallel workers for processing. If 0, no parallelism is used.
+    Returns
+    -------
+        None
+    """
     if not over_write: 
         log_stage(
             "Overwrite is set to False. Existing files will not be recomputed.", 
@@ -72,9 +114,10 @@ def main(
     # Compute attributes for all audios
     start_time = datetime.now().replace(microsecond=0)
     total = len(needed)
-    for i, (attribute, attribute_params, audio_file, side, save_path) in enumerate(needed):
+    def process_attribute(args):
+        attribute, attribute_params, audio_file, side, save_path = args
         log_progress(
-            i + 1, total, 
+            needed.index(args) + 1, total, 
             message=f"Processing {attribute} {side} {audio_file.stem[:7]}", 
             start_time=start_time
         )
@@ -105,6 +148,25 @@ def main(
             side=side
         )
 
+    if parallel_workers > 0 or parallel_workers == -1:
+        if parallel_workers == -1:
+            import os
+            parallel_workers = max_workers = int(0.8 * (os.cpu_count() - 1))
+        log_stage(
+            f"Processing attributes in parallel using {parallel_workers} workers.",
+            logger=logger_load,
+            level="INFO"
+        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+            list(executor.map(process_attribute, needed))
+    else:
+        log_stage(
+            "Processing attributes sequentially without parallelism.",
+            logger=logger_load,
+            level="INFO"
+        )
+        for args in needed:
+            process_attribute(args)
     # ====================================
     # PREPROCESS EEG DATA FOR EACH SUBJECT 
     eeg_save_dir = preprocessed_listening_dir / "eeg" 
@@ -185,6 +247,11 @@ def main(
             band=f"{band}: {l_freq}-{h_freq} Hz",
             resampled=f"from {int(raw_segment.info['sfreq'])} Hz to {target_sample_rate} Hz"
         )
+    tel_message(
+        api_token=API_TOKEN,
+        chat_id=CHAT_ID,
+        message=f"Loading and preprocessing completed.\nTotal audio attributes computed: {total}\nTotal EEG segments preprocessed: {len(needed_eeg)}"
+    )
 
 if __name__ == "__main__":
     main()

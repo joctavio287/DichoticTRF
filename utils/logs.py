@@ -245,33 +245,6 @@ def log_memory_usage(
     except ImportError:
         pass  # psutil not available
 
-# def log_progress(
-#     current: int, 
-#     total: int, 
-#     message: str = "Progress",
-#     logger: logging.Logger = None
-# )-> None:
-#     """
-#     Log progress of a task with a message.
-#     Parameters
-#     ----------
-#         current: int
-#             Current progress value
-#         total: int
-#             Total value for completion
-#         message: str
-#             Message to display with progress
-#     Returns
-#     -------
-#         None
-#     """
-#     if logger is None:
-#         logger = get_logger()
-#     percentage = (current / total) * 100
-    
-#     # Use different log levels based on progress
-#     log_stage(f"{message}: {current}/{total} ({percentage:.1f}%)", logger=logger)
-
 def log_progress(
     current: int, 
     total: int, 
@@ -343,50 +316,34 @@ def get_logger_file_paths(
             paths.append(Path(handler.baseFilename))
     return paths
 
-# # Example usage and testing
-# if __name__ == "__main__":
-#     # Setup logger with different levels
-#     logger = setup_logger("test_logger", level="DEBUG")
-    
-#     # Test different log levels
-#     logger.debug("🔍 This is a debug message")
-#     logger.info("ℹ️ This is an info message")
-#     logger.warning("⚠️ This is a warning message")
-#     logger.error("❌ This is an error message")
-#     logger.critical("🚨 This is a critical message")
-    
-#     # Test progress logging
-#     for i in range(0, 101, 25):
-#         log_progress(i, 100, "Training")
-    
-#     # Test function decorator
-#     @log_function_call
-#     def example_function(x, y=10):
-#         import time
-#         time.sleep(0.1)  # Simulate work
-#         return x + y
-    
-#     result = example_function(5, y=15)
-#     logger.info(f"Result: {result}")
-    
-#     # Test memory logging
-#     log_memory_usage()
-# else:
-#     # Make config logger
-#     import config
+def log_if_false(
+    condition: bool,
+    message: str,
+    logger: logging.Logger,
+    level: str = "WARNING",
+) -> None:
+    """
+    Log a message if the given condition is False.
 
-#     # Global logger configuration
-#     LOG_LEVEL = getattr(config, 'LOG_LEVEL', 'INFO')  # Default to INFO if not in config
-#     LOG_TO_FILE = getattr(config, 'LOG_TO_FILE', True)
-#     LOG_DIR = getattr(config, 'LOG_DIR', 'save/detailed_logs')
-
-#     # Setup main logger
-#     main_logger = setup_logger(
-#         name="speech_encoding",
-#         level=LOG_LEVEL,
-#         log_to_file=LOG_TO_FILE,
-#         log_dir=LOG_DIR
-#     )
-
-#     # Export for easy import
-#     logger = main_logger
+    Parameters
+    ----------
+    condition: bool
+        Condition to evaluate
+    message: str
+        Message to log if condition is False
+    logger: logging.Logger
+        Logger instance to use
+    level: str
+        Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    Returns
+    -------
+    None
+    """
+    if not condition:
+        log_stage(
+            message, 
+            level=level, 
+            logger=logger
+        )
+    else:
+        pass

@@ -16,6 +16,24 @@ from scipy import signal
 
 # =================
 # GENERAL UTILITIES
+def any_on_gpu(
+    attributes: list,
+) -> bool:
+    """
+    Check if any of the given attributes require GPU processing.
+    Parameters
+    ----------
+    attributes : list
+        List of attribute names.
+    Returns
+    -------
+        bool
+            True if any attribute requires GPU, False otherwise.
+    """
+    gpu_attributes = {
+        'DNNS'
+    }
+    return any(attr in gpu_attributes for attr in attributes)
 def dump_dict_to_json(
     filepath: str,
     data_dict: Union[dict, types.ModuleType],

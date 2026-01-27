@@ -23,7 +23,7 @@ from utils.telegram_config import API_TOKEN, CHAT_ID
 from utils.from_commands import create_dynamic_parser, apply_args_to_config
 from utils.logs import (
     log_stage, log_progress, log_memory_usage,
-    get_logger_file_paths, setup_logger
+    get_logger_file_paths, setup_logger, log_if_false
 )
 # Initialize logger
 logger_val = setup_logger(
@@ -313,7 +313,12 @@ def main(
     # Make plots
     if overwrite_results:
         for band, attribute, side in product(bands, attributes, sides):
-            hyperparameter_selection(**plot_data[band][attribute][side])
+            log_if_false(
+                hyperparameter_selection(**plot_data[band][attribute][side]),
+                f"Hyperparameter selection plot failed for {band}-{attribute}-{side}",
+                logger=logger_val,
+                level="ERROR"
+            )
         log_stage(
             f"Figures saved in {figures_dir}/validation", 
             logger=logger_val,
