@@ -245,14 +245,42 @@ def log_memory_usage(
     except ImportError:
         pass  # psutil not available
 
+# def log_progress(
+#     current: int, 
+#     total: int, 
+#     message: str = "Progress",
+#     logger: logging.Logger = None
+# )-> None:
+#     """
+#     Log progress of a task with a message.
+#     Parameters
+#     ----------
+#         current: int
+#             Current progress value
+#         total: int
+#             Total value for completion
+#         message: str
+#             Message to display with progress
+#     Returns
+#     -------
+#         None
+#     """
+#     if logger is None:
+#         logger = get_logger()
+#     percentage = (current / total) * 100
+    
+#     # Use different log levels based on progress
+#     log_stage(f"{message}: {current}/{total} ({percentage:.1f}%)", logger=logger)
+
 def log_progress(
     current: int, 
     total: int, 
     message: str = "Progress",
-    logger: logging.Logger = None
-)-> None:
+    logger: logging.Logger = None,
+    start_time: datetime = None
+) -> None:
     """
-    Log progress of a task with a message.
+    Log progress of a task with a message and optional ETA.
     Parameters
     ----------
         current: int
@@ -261,6 +289,8 @@ def log_progress(
             Total value for completion
         message: str
             Message to display with progress
+        start_time: datetime, optional
+            Start time of the process (for ETA calculation)
     Returns
     -------
         None
@@ -268,9 +298,15 @@ def log_progress(
     if logger is None:
         logger = get_logger()
     percentage = (current / total) * 100
+
+    eta_str = ""
+    if start_time is not None and current > 0:
+        elapsed = datetime.now() - start_time
+        estimated_total = elapsed / current * total
+        remaining = estimated_total - elapsed
+        eta_str = f", ETA: {str(remaining).split('.')[0]}"
     
-    # Use different log levels based on progress
-    log_stage(f"{message}: {current}/{total} ({percentage:.1f}%)", logger=logger)
+    log_stage(f"{message}: {current}/{total} ({percentage:.1f}%)" + eta_str, logger=logger)
 
 def log_stage(
     message: str,

@@ -272,7 +272,8 @@ def main(
                         subj_idx + 1, 
                         len(subjects), 
                         message=f"α: {alpha}", 
-                        logger=logger_main
+                        logger=logger_main,
+                        start_time=start_time_attribute
                     )
                 # Calculate runtime for this stimulus
                 att_runtime = datetime.now().replace(microsecond=0) - start_time_attribute.replace(microsecond=0)

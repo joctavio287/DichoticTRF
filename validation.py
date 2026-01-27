@@ -266,7 +266,8 @@ def main(
                         subj_idx + 1, 
                         len(subjects), 
                         message=f"α selected: {alpha_selected}", 
-                        logger=logger_val
+                        logger=logger_val,
+                        start_time=start_time
                     )
 
                     # Calculate runtime for this stimulus
