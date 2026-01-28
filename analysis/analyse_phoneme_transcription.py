@@ -128,7 +128,7 @@ for side in ['left', 'right']:
             fig.colorbar(img, ax=ax, label='Log-Likelihood')
             fig.suptitle(f"{audio_filepath.stem} [{start_time:.1f}s - {end_time:.1f}s]")
             fig.tight_layout()
-            save_path = config.FIGURES_DIR / "analysis" / "phoneme_transcriptions" /  f"phoneme_transcription_{pllr_path.stem}_segment_{i+1}.png"
+            save_path = config.FIGURES_BASE / "analysis" / "phoneme_transcriptions" /  f"phoneme_transcription_{pllr_path.stem}_segment_{i+1}.png"
             save_path.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(
                 save_path

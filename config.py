@@ -5,7 +5,7 @@ from utils.helpers_processing import any_on_gpu
 
 # === Time lags and delays ===
 TARGET_SAMPLING_RATE = 128  # Hz
-TMIN, TMAX = .05, .6 # s
+TMIN, TMAX = -.2, .6 # s
 NUMBER_OF_CHANNELS = 64
 DELAYS = np.arange(
     int(np.round(TMIN * TARGET_SAMPLING_RATE)), int(np.round(TMAX * TARGET_SAMPLING_RATE) + 1)
@@ -14,7 +14,9 @@ TIMES = (DELAYS / TARGET_SAMPLING_RATE)
 
 # === Relevant directories ===
 LOG_DIR = Path("detailed_logs")
-FIGURES_DIR = Path("figures")
+FIGURES_BASE = Path("figures")
+FIGURES_DIR = FIGURES_BASE / f'tmin{TMIN}_tmax{TMAX}'
+
 OUTPUT_DIR = Path("output")
 BASE_DATA = Path("data")
 PREPROCESSED_LISTENING_DIR = BASE_DATA / "preprocessed_listening"
@@ -88,6 +90,8 @@ ATTRIBUTE_PARAMS = {
     },
     'Spectrogram': {
         'n_mels': 21
+    },
+    'BipOnsets': {
     },
     'Phonemes': {
         'use_unprobed_audio': True

@@ -216,26 +216,23 @@ def main(
                         relevant_eeg = eeg
                     
                     # Run folds 
-                    try:
-                        for fold, (train_indexes, test_indexes) in enumerate(kf_test.split(relevant_eeg)):
-                            logger_val.debug(f'\n\t······  [{fold+1}/{n_folds}]\t-->\t Validation fold')
-                            trfs_per_fold[fold], correlations_per_fold[fold], correlations_per_fold_train[fold]  = fold_model(
-                                fold=fold,
-                                alpha=alphas_grid,
-                                stims=stimulus[attribute],
-                                eeg=relevant_eeg,
-                                relevant_indexes=relevant_indexes,
-                                train_indexes=train_indexes,
-                                test_indexes=test_indexes,  
-                                logger=logger_val,
-                                solver=solver,
-                                validation=True,
-                                attribute_preprocess=attribute_preprocess,
-                                eeg_preprocess=eeg_preprocess,
-                                delays=delays
-                            )     
-                    except Exception as e:
-                        from IPython import embed; embed()
+                    for fold, (train_indexes, test_indexes) in enumerate(kf_test.split(relevant_eeg)):
+                        logger_val.debug(f'\n\t······  [{fold+1}/{n_folds}]\t-->\t Validation fold')
+                        trfs_per_fold[fold], correlations_per_fold[fold], correlations_per_fold_train[fold]  = fold_model(
+                            fold=fold,
+                            alpha=alphas_grid,
+                            stims=stimulus[attribute],
+                            eeg=relevant_eeg,
+                            relevant_indexes=relevant_indexes,
+                            train_indexes=train_indexes,
+                            test_indexes=test_indexes,  
+                            logger=logger_val,
+                            solver=solver,
+                            validation=True,
+                            attribute_preprocess=attribute_preprocess,
+                            eeg_preprocess=eeg_preprocess,
+                            delays=delays
+                        )     
                     # Aggregate results
                     correlations = np.nan_to_num(
                         np.nanmean(correlations_per_fold, axis=0)

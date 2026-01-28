@@ -72,6 +72,7 @@ def main(
                 correlations_std = results[band][attribute][side]['correlations_std']
                 correlations = results[band][attribute][side]['correlations']
                 metadata = results[band][attribute][side]['metadata']
+                alphas = results[band][attribute][side]['alphas']
                 trfs = results[band][attribute][side]['trfs'] 
                 if any(x is None for x in (correlations_std, correlations, metadata, trfs)):
                     log_stage(
@@ -191,6 +192,9 @@ def main(
                 log_stage(
                     f"Figures saved in {fig_dir_subfolder}.", logger=logger_figures, level="INFO"
                 )
+                
+                # for subject in subjects:
+                    # alphas[subject] --> use this in the plots?
 
                 # -> TRF topomaps en relevant times
                 # -> matriz de similaridad

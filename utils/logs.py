@@ -205,7 +205,7 @@ def log_function_call(
         func_name = func.__name__
         
         # Log function entry
-        logger.debug(f"🔄 Calling {func_name} with args={args}, kwargs={kwargs}")
+        logger.debug(f"🔄 Calling {func_name} with args={args}, kwargs={kwargs}", stacklevel=2)
         
         start_time = datetime.now()
         try:
@@ -213,14 +213,14 @@ def log_function_call(
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
             
-            logger.debug(f"✅ {func_name} completed in {duration:.3f}s")
+            logger.debug(f"✅ {func_name} completed in {duration:.3f}s", stacklevel=2)
             return result
             
         except Exception as e:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
             
-            logger.error(f"❌ {func_name} failed after {duration:.3f}s: {str(e)}")
+            logger.error(f"❌ {func_name} failed after {duration:.3f}s: {str(e)}", stacklevel=2)
             raise
     
     return wrapper
@@ -240,7 +240,7 @@ def log_memory_usage(
         
         if logger is None:
             logger = get_logger()
-        logger.debug(f"Memory usage: {memory_mb:.1f} MB")
+        logger.debug(f"Memory usage: {memory_mb:.1f} MB", stacklevel=2)
         
     except ImportError:
         pass  # psutil not available
@@ -250,7 +250,8 @@ def log_progress(
     total: int, 
     message: str = "Progress",
     logger: logging.Logger = None,
-    start_time: datetime = None
+    start_time: datetime = None,
+    level: str = "INFO"
 ) -> None:
     """
     Log progress of a task with a message and optional ETA.
@@ -279,12 +280,13 @@ def log_progress(
         remaining = estimated_total - elapsed
         eta_str = f", ETA: {str(remaining).split('.')[0]}"
     
-    log_stage(f"{message}: {current}/{total} ({percentage:.1f}%)" + eta_str, logger=logger)
+    log_stage(f"{message}: {current}/{total} ({percentage:.1f}%)" + eta_str, logger=logger, level=level, stacklevel=3)
 
 def log_stage(
     message: str,
     level: str = "INFO",
-    logger: logging.Logger = None
+    logger: logging.Logger = None,
+    stacklevel: int = 2
 )-> None:
     """
     Log a stage header/message using the configured logger.
@@ -302,7 +304,7 @@ def log_stage(
         logger = get_logger()
     log_fn = getattr(logger, level.lower(), logger.info)
     cleaned = " ".join(str(message).strip().split())
-    log_fn(f"⟫ {cleaned}")
+    log_fn(f"⟫ {cleaned}", stacklevel=stacklevel)
 
 def get_logger_file_paths(
     logger: logging.Logger
@@ -343,7 +345,8 @@ def log_if_false(
         log_stage(
             message, 
             level=level, 
-            logger=logger
+            logger=logger,
+            stacklevel=3
         )
     else:
         pass

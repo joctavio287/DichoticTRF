@@ -301,6 +301,7 @@ def main(
                     np.savez(
                         file=trfs_path/f'trfs_{band.lower()}_{attribute.lower()}_{side}.npz',
                         trfs=trfs,
+                        alphas=alphas[band][attribute][side],
                         metadata={
                             'number_of_channels': number_of_channels, 
                             'number_of_subjects': len(subjects), 
@@ -314,6 +315,7 @@ def main(
                     'correlations': correlations,
                     'correlations_std': correlations_std,
                     'trfs': trfs,
+                    'alphas': alphas[band][attribute][side],
                     'metadata': {
                         'number_of_channels': number_of_channels, 
                         'number_of_subjects': len(subjects), 
