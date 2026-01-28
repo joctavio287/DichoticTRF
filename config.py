@@ -5,7 +5,7 @@ from utils.helpers_processing import any_on_gpu
 
 # === Time lags and delays ===
 TARGET_SAMPLING_RATE = 128  # Hz
-TMIN, TMAX = -.2, .6 # s
+TMIN, TMAX = .05, .6 # s
 NUMBER_OF_CHANNELS = 64
 DELAYS = np.arange(
     int(np.round(TMIN * TARGET_SAMPLING_RATE)), int(np.round(TMAX * TARGET_SAMPLING_RATE) + 1)
@@ -61,9 +61,9 @@ CHANNEL_SELECTION = None
 
 # === Experimental parameters ===
 ATTRIBUTES = [
-    # 'Envelope',
-    # 'Spectrogram',
-    # 'BipOnsets'
+    'Envelope',
+    'Spectrogram',
+    'BipOnsets',
     'Phonemes'
 ]
 BAND_FREQ = [
