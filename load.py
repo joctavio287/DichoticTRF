@@ -194,7 +194,7 @@ def main(
     for eeg_file in eeg_filelist:
         eeg_name = eeg_file.stem.replace("_preprocessed", "")
         raw = mne.io.read_raw_fif(eeg_file, preload=True, verbose='CRITICAL')
-        raw = raw.pick_types(eeg=True, exclude=['M1', 'M2'])
+        raw = raw.pick('eeg').drop_channels(['M1', 'M2'])
         # Read json annotation file
         annotations_data = load_json_to_dict(
             filepath=preprocessed_eeg_dir / 'annotations' / f"events_{eeg_name}.json"
