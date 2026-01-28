@@ -1,8 +1,8 @@
 from typing import Union, Sequence, Optional, Dict, Any, Iterable
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform
-from scipy.signal import find_peaks
 from pathlib import Path
+from scipy import signal
 import numpy as np
 import logging
 import types
@@ -12,8 +12,8 @@ import copy
 import mne
 
 import importlib.machinery
-from scipy import signal
-
+import unicodedata
+import re
 # =================
 # GENERAL UTILITIES
 def any_on_gpu(
@@ -31,9 +31,11 @@ def any_on_gpu(
             True if any attribute requires GPU, False otherwise.
     """
     gpu_attributes = {
-        'DNNS'
+        # 'Phonemes', 'PhonemesDiscrete', 'DNNS'
+        'DNNs'
     }
     return any(attr in gpu_attributes for attr in attributes)
+
 def dump_dict_to_json(
     filepath: str,
     data_dict: Union[dict, types.ModuleType],
@@ -49,29 +51,32 @@ def dump_dict_to_json(
     else:
         data_dict_ = data_dict
     def _to_jsonable(obj):
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, np.generic):
-            return obj.item()
-        if obj is Ellipsis:
-            return "..."
-        if obj is NotImplemented:
-            return "NotImplemented"
-        if isinstance(obj, Path):
+        try:
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, np.generic):
+                return obj.item()
+            if obj is Ellipsis:
+                return "..."
+            if obj is NotImplemented:
+                return "NotImplemented"
+            if isinstance(obj, Path):
+                return str(obj)
+            if isinstance(obj, importlib.machinery.ModuleSpec):
+                return str(obj)
+            if isinstance(obj, importlib.machinery.SourceFileLoader):
+                return str(obj)
+            if isinstance(obj, types.ModuleType):
+                return obj.__name__
+            # Modules / functions / callables
+            if callable(obj) or hasattr(obj, "__name__"):
+                return getattr(obj, "__name__", str(obj))
+            if isinstance(obj, dict):
+                return {k: _to_jsonable(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple, set)):
+                return [_to_jsonable(v) for v in obj]
+        except Exception:
             return str(obj)
-        if isinstance(obj, importlib.machinery.ModuleSpec):
-            return str(obj)
-        if isinstance(obj, importlib.machinery.SourceFileLoader):
-            return str(obj)
-        if isinstance(obj, types.ModuleType):
-            return obj.__name__
-        # Modules / functions / callables
-        if callable(obj) or hasattr(obj, "__name__"):
-            return getattr(obj, "__name__", str(obj))
-        if isinstance(obj, dict):
-            return {k: _to_jsonable(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple, set)):
-            return [_to_jsonable(v) for v in obj]
         return obj
     
     output_path = Path(filepath)
@@ -239,10 +244,38 @@ def get_gfp_peaks(evoked, min_dist_ms=25, rel_height=0.1):
     height_thresh = np.max(gfp) * rel_height
 
     # Find peaks
-    peaks_idx, _ = find_peaks(gfp, distance=dist_samples, height=height_thresh)
+    peaks_idx, _ = signal.find_peaks(gfp, distance=dist_samples, height=height_thresh)
 
     return inst.times[peaks_idx], gfp[peaks_idx]
 
+def normalize_text(
+    text: str
+) -> str:
+    """
+    Normalize text by converting to lowercase, removing accents, punctuation, and extra whitespace.
+
+    Parameters
+    ----------
+    text : str
+        The input text to be normalized.
+
+            Returns
+    -------
+    str
+        The normalized text.
+    """
+    # Convert to lowercase
+    text = text.lower()
+    # Remove accents
+    text = ''.join(
+        c for c in unicodedata.normalize('NFD', text)
+        if unicodedata.category(c) != 'Mn'
+    )
+    # Remove punctuation (keep only letters, numbers, and spaces)
+    text = re.sub(r'[^\w\s]', '', text)
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 # ================================
 # FILTERING AND RESAMPLING SIGNALS
 def get_antialiasing_filter(

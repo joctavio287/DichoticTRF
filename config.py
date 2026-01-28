@@ -49,10 +49,9 @@ ALPHAS_GRID = np.logspace(
 alpha_step = np.diff(np.log(ALPHAS_GRID))[0]
 
 # === Output/plotting ===
-PARALLEL_WORKERS_LOADING = -1
+PARALLEL_WORKERS_LOADING = 8 #-1 for all cores
 OVERWRITE_EXISTING_ATTRIBUTES = False
 OVERWRITE_FIGURES = True
-USE_SCIENCE_PLOTS = False
 OVERWRITE_RESULTS = True
 SET_ALPHA = False
 
@@ -62,10 +61,10 @@ CHANNEL_SELECTION = None
 
 # === Experimental parameters ===
 ATTRIBUTES = [
-    'Envelope',
-    'Spectrogram',
-    'BipOnsets'
-    # 'Phonemes'
+    # 'Envelope',
+    # 'Spectrogram',
+    # 'BipOnsets'
+    'Phonemes'
 ]
 BAND_FREQ = [
     'Broad',
@@ -77,8 +76,8 @@ BAND_FREQ = [
 ]
 SIDES = [
     'mono',
-    # 'left',
-    # 'right'
+    'left',
+    'right'
 ]
 # Disable parallelism if using GPU to avoid conflicts
 if any_on_gpu(ATTRIBUTES):
@@ -88,10 +87,10 @@ ATTRIBUTE_PARAMS = {
     'Envelope': {
     },
     'Spectrogram': {
-        'target_sample_rate': TARGET_SAMPLING_RATE,
         'n_mels': 21
     },
     'Phonemes': {
+        'use_unprobed_audio': True
     }
 }
 
@@ -101,4 +100,5 @@ SUBJECTS = [
 ]
 
 # === Miscellaneous ===
+USE_SCIENCE_PLOTS = False
 RANDOM_SEED = 42

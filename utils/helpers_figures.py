@@ -15,6 +15,7 @@ import mne
 
 from utils.helpers_processing import get_gfp_peaks
 from utils.logs import log_stage
+from utils.helpers_audio import LEXICON
 import config
 
 if config.USE_SCIENCE_PLOTS:
@@ -73,6 +74,12 @@ def feature_names_mapping(
         axis_mapping['ylabel'] = 'Frecuency (Hz)'
         axis_mapping['yticklabels'] = [int(bands_center[i]) for i in np.arange(0, len(bands_center), 2)]
         axis_mapping['yticks'] = np.arange(0, number_of_features, 2)
+    elif attribute == 'Phonemes':
+        # Using config.PHONEME_LIST
+        axis_mapping['full_labels'] = LEXICON['phonemes']
+        axis_mapping['ylabel'] = 'Phonemes'
+        axis_mapping['yticklabels'] = LEXICON['phonemes']
+        axis_mapping['yticks'] = np.arange(0, number_of_features, 1)
     return axis_mapping
 
 @safe_plot

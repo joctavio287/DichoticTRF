@@ -10,7 +10,8 @@ from utils.helpers_processing import (
     custom_resample, band_selection
 )
 from utils.helpers_audio import (
-    read_ogg, compute_single_stimulus
+    read_ogg, compute_single_stimulus,
+    _get_phonet_instance
 )
 import config
 
@@ -24,6 +25,8 @@ from utils.logs import (
     log_stage, log_progress,
     setup_logger
 )
+
+PHONET_CACHE = {}
 
 # Initialize logger
 logger_load= setup_logger(
@@ -90,7 +93,6 @@ def main(
             "Overwrite is set to False. Existing files will not be recomputed.", 
             logger=logger_load
         )
-
     # =================================
     # COMPUTE ATTRIBUTES FOR ALL AUDIOS
     audio_files = list(
@@ -98,12 +100,12 @@ def main(
     )
     # Precompute which attribute/side/audio combinations are needed
     needed = []
-    for attribute, attribute_params in zip(attributes, attribute_params.values()):
+    for attribute in attributes:
         for audio_file in audio_files:
             for side in ['left', 'right', 'mono']:
                 save_path = preprocessed_listening_dir / attribute.lower() / side / f"{audio_file.stem[:7]}_{side}.npz"
                 if not (save_path.exists() and not over_write):
-                    needed.append((attribute, attribute_params, audio_file, side, save_path))
+                    needed.append((attribute, attribute_params[attribute], audio_file, side, save_path))
                 else:
                     log_stage(
                         f"Attribute {attribute} for {side} of {audio_file.stem[:7]} already computed. Skipping computation.", 
@@ -126,16 +128,29 @@ def main(
             return_sample_rate=True
         )
         track = {'left': 0, 'right': 1, 'mono': None}[side]
-        audio_side = audio[:, track] if side != 'mono' else np.mean(audio, axis=1)
+        if 'Phon' in attribute:
+            global PHONET_CACHE
+            PHONET_CACHE = _get_phonet_instance(PHONET_CACHE, logger=logger_load)
+            envelope_len = custom_resample(
+                array=audio,
+                original_sr=sample_rate,
+                target_sr=target_sample_rate,
+                axis=0
+            )
+            attribute_params['envelope_length'] = envelope_len.shape[0]
+            attribute_params['phonet_obj'] = PHONET_CACHE['phonet']
+        
+        audio_side = audio[:, track] if side != 'mono' else audio
         attribute_values = compute_single_stimulus(
             axis=0,
-            sidename=side,
             audio=audio_side,
             attribute=attribute,
             params=attribute_params,
             sample_rate=sample_rate,
             audio_filepath=audio_file,
             target_sample_rate=target_sample_rate,
+            logger=logger_load,
+            side=side
         )
         save_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(

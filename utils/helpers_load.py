@@ -57,6 +57,7 @@ def listening_data(
         for attribute in attributes:
             attribute_file = config.PREPROCESSED_LISTENING_DIR / f"{attribute.lower()}" / side / f"{audio_filecode}_{side}.npz"
             if not attribute_file.exists() or overwrite:
+                from IPython import embed; embed()
                 raise FileNotFoundError(f"Attribute file {attribute_file} not found. Please extract attributes first.")
             attribute_data = np.load(attribute_file, allow_pickle=True)
 
@@ -81,13 +82,16 @@ def listening_data(
 
     # Concatenate all eeg segments
     eeg = np.concatenate(eeg_segments, axis=0)
-    concatenated_stimuli = {attr: [] for attr in attributes}
-    for segment in attributes_segments:
-        for attr in attributes:
-            concatenated_stimuli[attr].append(segment[attr])
-    stimuli = {
-        attr: np.concatenate(
-            concatenated_stimuli[attr], axis=0
-        ) for attr in attributes
-    }
+    try: 
+        concatenated_stimuli = {attr: [] for attr in attributes}
+        for segment in attributes_segments:
+            for attr in attributes:
+                concatenated_stimuli[attr].append(segment[attr])
+        stimuli = {
+            attr: np.concatenate(
+                concatenated_stimuli[attr], axis=0
+            ) for attr in attributes
+        }
+    except ValueError as e:
+        from IPython import embed; embed()  
     return eeg, stimuli
