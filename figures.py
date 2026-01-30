@@ -44,6 +44,7 @@ def main(
     times: np.ndarray = config.TIMES,
     logger_figures: logging.Logger = logger_figures,
     extension: str = "png",
+    same_val: bool = config.SAME_VALIDATION,
     dpi: int = 300
 ):
     """
@@ -61,7 +62,7 @@ def main(
         bands=bands,
         load_results=True
     )
-    channel_index, info_mne = get_info_mne(
+    channel_indexes, info_mne = get_info_mne(
         channel_selection=channel_selection,
         return_channels_index=True
     )
@@ -72,7 +73,7 @@ def main(
                 correlations_std = results[band][attribute][side]['correlations_std']
                 correlations = results[band][attribute][side]['correlations']
                 metadata = results[band][attribute][side]['metadata']
-                alphas = results[band][attribute][side]['alphas']
+                alphas = results[band][attribute][side]['alphas'].item()
                 trfs = results[band][attribute][side]['trfs'] 
                 if any(x is None for x in (correlations_std, correlations, metadata, trfs)):
                     log_stage(
@@ -81,10 +82,14 @@ def main(
                         level="WARNING"
                     )
                     continue
-                ddof = metadata["number_of_channels"]-1
-                
+
+                # Select only the desired channels
+                correlations_std = correlations_std[:, channel_indexes]
+                correlations = correlations[:, channel_indexes]
+                trfs = trfs[:, channel_indexes, :, :]
+
                 # Generate average figures across subjects
-                fig_dir_subfolder = fig_dir / "main_analysis" / band.lower() / attribute.lower() / side.lower()
+                fig_dir_subfolder = fig_dir / "main_analysis" / same_val / band.lower() / attribute.lower() / side.lower()
                 fig_dir_subfolder.mkdir(parents=True, exist_ok=True)
 
                 # =============================================
@@ -193,11 +198,71 @@ def main(
                     f"Figures saved in {fig_dir_subfolder}.", logger=logger_figures, level="INFO"
                 )
                 
-                # for subject in subjects:
-                    # alphas[subject] --> use this in the plots?
+                # ========================
+                # Individual subject plots
+                for subj_i, subject in enumerate(subjects):
+                    fig_dir_subfolder_subject = fig_dir_subfolder / 'individual_plots' / str(subj_i)
+                    fig_dir_subfolder_subject.mkdir(parents=True, exist_ok=True)
+                    
+                    # ================================
+                    # Average TRF plot across features
+                    averaged_evoked_trf = mne.EvokedArray(
+                        data=trfs[subj_i, :, :, :].mean(axis=1),
+                        info=info_mne
+                    )
+                    log_if_false(
+                        evoked_potential_plot(
+                            output_filepath=fig_dir_subfolder_subject / f"average_trf_across_features.{extension}",
+                            evoked=averaged_evoked_trf,
+                            time_window=times,
+                            title=f"Subject {subject} - α: {alphas[subject]:.4f}"
+                        ),
+                        f"{band}-{attribute}-{side}-{subj_i}: TRF Failed",
+                        logger=logger_figures,
+                        level="ERROR"
+                    )
+                    # ================================
+                    # Average TRF plot across channels
+                    if metadata['number_of_features'] > 1:
+                        trfs_mean_across_channels = trfs[subj_i, :, :, :].mean(axis=0)
+                        if attribute in ALLOWED_CLUSTERING_CORRELATION:
+                            order = clustering_by_correlation(
+                                data=trfs_mean_across_channels
+                                )
+                        log_if_false(
+                            trf_heatmap_plot(
+                                output_filepath=fig_dir_subfolder_subject / f"average_trf_across_channels.{extension}",
+                                data=trfs_mean_across_channels,
+                                time_window=times,
+                                attribute=attribute,
+                                order=order if attribute in ALLOWED_CLUSTERING_CORRELATION else None,
+                                title=f"Subject {subject} - α: {alphas[subject]:.4f}"
+                            ),
+                            f"{band}-{attribute}-{side}-{subj_i}: TRF Heatmap Failed",
+                            logger=logger_figures,
+                            level="ERROR"
+                        )
+                    # ====================
+                    # Correlation topoplot
+                    log_if_false(
+                        topoplot(
+                            coefficient_values=correlations[subj_i],
+                            coefficient_name='Correlation',
+                            info=info_mne,
+                            figsize=(6,5),
+                            figkwargs={},
+                            colors='OrRd',
+                            show=False,
+                            output_filepath=fig_dir_subfolder_subject / f"average_correlation_topomap.{extension}",
+                            dpi=dpi,
+                            logger=logger_figures
+                        ),
+                        f"{band}-{attribute}-{side}-{subj_i}: Average Correlation Topoplot Failed",
+                        logger=logger_figures,
+                        level="ERROR"
+                    )
+                    
 
-                # -> TRF topomaps en relevant times
-                # -> matriz de similaridad
 
                 # tfce?
 

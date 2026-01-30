@@ -67,7 +67,8 @@ def main(
     bands: List[str] = config.BAND_FREQ,
     logger_val: logging.Logger = logger_val,
     sides: List[str] = config.SIDES,
-    load_results: bool = False
+    load_results: bool = False,
+    number_of_segments: Optional[int] = config.MAX_NUMBER_OF_SEGMENTS
 ) -> Dict[str, Dict[str, Dict[str, float]]]:
     """
     Main function to perform validation analysis over subjects, bands, attributes and sides.
@@ -116,7 +117,11 @@ def main(
         The logger for validation process.
     sides : List[str]
         The side names to process ('left', 'right', 'mono').
-
+    load_results: bool = False,
+        Whether to load existing results from disk.
+    number_of_segments : Optional[int]
+        The number of segments to use per subject. If None, use all segments.
+        
     Returns
     -------
         Dict[str, Dict[str, Dict[str, float]]]
@@ -185,7 +190,8 @@ def main(
                         attributes=attributes,
                         attribute_params=attributes_params,
                         overwrite=overwrite_attributes,
-                        side=side
+                        side=side,
+                        number_of_segments=number_of_segments
                     )
 
                     # Check if we need to skip because results exist

@@ -1,4 +1,4 @@
-from typing import Union, Sequence, Optional, Dict, Any, Iterable
+from typing import List, Union, Sequence, Optional, Dict, Any, Iterable
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform
 from pathlib import Path
@@ -14,6 +14,7 @@ import mne
 import importlib.machinery
 import unicodedata
 import re
+
 # =================
 # GENERAL UTILITIES
 def any_on_gpu(
@@ -248,6 +249,22 @@ def get_gfp_peaks(evoked, min_dist_ms=25, rel_height=0.1):
 
     return inst.times[peaks_idx], gfp[peaks_idx]
 
+def get_median_regularization(
+    arr: Union[List, np.ndarray]
+)-> float:
+    """
+    Compute the median of an array in log scale.
+    Parameters
+    ----------
+    arr : Union[List, np.ndarray]
+        Input array of values.
+    Returns
+    -------
+    float
+        The median value in log scale.
+    """
+    return 10**(np.median(np.log10(np.array(arr))))
+
 def normalize_text(
     text: str
 ) -> str:
@@ -276,6 +293,7 @@ def normalize_text(
     # Remove extra whitespace
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
 # ================================
 # FILTERING AND RESAMPLING SIGNALS
 def get_antialiasing_filter(

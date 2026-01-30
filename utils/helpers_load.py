@@ -15,7 +15,8 @@ def listening_data(
     attributes: List[str]=['Envelope'],
     attribute_params: Dict[str, Dict]=None,
     overwrite: bool = False,
-    side: str = 'mono'
+    side: str = 'mono',
+    number_of_segments: Union[int, None] = None
 )-> Union[tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]], tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]]:
     """
     Loads the preprocessed EEG and attributes for a given participant during the listening task.
@@ -47,7 +48,11 @@ def listening_data(
     eeg_filepaths = list(eeg_dir.glob(f"{participant_id}_segment*.npz"))
     
     attributes_segments, eeg_segments = [], []
-    for eeg_npz_file, audio_filecode in zip(eeg_filepaths, audio_filecodes):
+    for n_path, (eeg_npz_file, audio_filecode) in enumerate(zip(eeg_filepaths, audio_filecodes)):
+        # Limit number of segments if specified in config
+        if number_of_segments is not None and n_path+1 > number_of_segments:
+            break        
+        
         # Load EEG segment
         eeg_data = np.load(eeg_npz_file, allow_pickle=True)
         eeg_segment = eeg_data['eeg']
@@ -57,7 +62,6 @@ def listening_data(
         for attribute in attributes:
             attribute_file = config.PREPROCESSED_LISTENING_DIR / f"{attribute.lower()}" / side / f"{audio_filecode}_{side}.npz"
             if not attribute_file.exists() or overwrite:
-                from IPython import embed; embed()
                 raise FileNotFoundError(f"Attribute file {attribute_file} not found. Please extract attributes first.")
             attribute_data = np.load(attribute_file, allow_pickle=True)
 
@@ -82,16 +86,13 @@ def listening_data(
 
     # Concatenate all eeg segments
     eeg = np.concatenate(eeg_segments, axis=0)
-    try: 
-        concatenated_stimuli = {attr: [] for attr in attributes}
-        for segment in attributes_segments:
-            for attr in attributes:
-                concatenated_stimuli[attr].append(segment[attr])
-        stimuli = {
-            attr: np.concatenate(
-                concatenated_stimuli[attr], axis=0
-            ) for attr in attributes
-        }
-    except ValueError as e:
-        from IPython import embed; embed()  
+    concatenated_stimuli = {attr: [] for attr in attributes}
+    for segment in attributes_segments:
+        for attr in attributes:
+            concatenated_stimuli[attr].append(segment[attr])
+    stimuli = {
+        attr: np.concatenate(
+            concatenated_stimuli[attr], axis=0
+        ) for attr in attributes
+    }
     return eeg, stimuli

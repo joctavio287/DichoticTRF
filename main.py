@@ -67,7 +67,9 @@ def main(
     sides: List[str] = config.SIDES,
     n_folds: int = config.N_FOLDS,
     solver: str = config.SOLVER,
-    load_results: bool = False
+    load_results: bool = False,
+    number_of_segments: Optional[int] = config.MAX_NUMBER_OF_SEGMENTS,
+    same_val: bool = config.SAME_VALIDATION
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, np.ndarray]]]]:
     """
     Main function to perform TRFs analysis over subjects, bands, attributes and sides.
@@ -118,6 +120,12 @@ def main(
         The solver to use in the model.
     bands : List[str]
         The frequency bands to consider.
+    load_results : bool
+        Whether to load existing results from disk.
+    number_of_segments : Optional[int]
+        The number of segments to use per subject. If None, use all segments.
+    same_val : bool
+        Whether to use the same regularization for every subject.
 
     Returns
     -------
@@ -166,9 +174,12 @@ def main(
                     if correlations_path.exists() and trfs_path.exists():
                         corr_data = np.load(correlations_path, allow_pickle=True)
                         trf_data =  np.load(trfs_path, allow_pickle=True)
+                        from IPython import embed; embed()
+                        trf_data['alphas']
                         total_results[band][attribute][side] = {
                             'correlations': corr_data['correlations'],
                             'correlations_std': corr_data['correlations_std'],
+                            'alphas': trf_data['alphas'],
                             'trfs': trf_data['trfs'],
                             'metadata': {
                                 **corr_data['metadata'].item(),**trf_data['metadata'].item()
@@ -182,6 +193,7 @@ def main(
                             'correlations_std': None,
                             'correlations': None,
                             'metadata': None,
+                            'alphas': None,
                             'trfs': None
                         }
         return total_results
@@ -213,7 +225,8 @@ def main(
                         attributes=attributes,
                         attribute_params=attributes_params,
                         overwrite=overwrite_attributes,
-                        side=side
+                        side=side,
+                        number_of_segments=number_of_segments
                     )
                     number_of_features = stimulus[attribute].shape[1]
 

@@ -13,11 +13,16 @@ DELAYS = np.arange(
 TIMES = (DELAYS / TARGET_SAMPLING_RATE)
 
 # === Relevant directories ===
+MAX_NUMBER_OF_SEGMENTS = 2  # set to None to use all segments
 LOG_DIR = Path("detailed_logs")
-FIGURES_BASE = Path("figures")
-FIGURES_DIR = FIGURES_BASE / f'tmin{TMIN}_tmax{TMAX}'
+if MAX_NUMBER_OF_SEGMENTS is not None:
+    FIGURES_BASE = Path(f"figures_{MAX_NUMBER_OF_SEGMENTS}_segments")
+    OUTPUT_DIR = Path(f"output_{MAX_NUMBER_OF_SEGMENTS}_segments")
+else:
+    FIGURES_BASE = Path("figures")
+    OUTPUT_DIR = Path("output")
 
-OUTPUT_DIR = Path("output")
+FIGURES_DIR = FIGURES_BASE / f'tmin{TMIN}_tmax{TMAX}'
 BASE_DATA = Path("data")
 PREPROCESSED_LISTENING_DIR = BASE_DATA / "preprocessed_listening"
 BEHAVIOURAL_DIR = BASE_DATA / "behavioural_data"
@@ -52,6 +57,7 @@ alpha_step = np.diff(np.log(ALPHAS_GRID))[0]
 
 # === Output/plotting ===
 PARALLEL_WORKERS_LOADING = 8 #-1 for all cores
+SAME_VALIDATION = True  # whether to use same regularization for every subject
 OVERWRITE_EXISTING_ATTRIBUTES = False
 OVERWRITE_FIGURES = True
 OVERWRITE_RESULTS = True
